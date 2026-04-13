@@ -329,7 +329,7 @@ internal sealed class ConventionExecutionTests
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
 
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, CancellationToken.None);
+			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner: null, CancellationToken.None);
 
 			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
 		}

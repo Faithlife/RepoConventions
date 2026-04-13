@@ -6,7 +6,7 @@ namespace RepoConventions;
 
 internal sealed class ConventionRunner
 {
-	public ConventionRunner(string targetRepositoryRoot, GitClient targetGitClient, TextWriter standardOutput, TextWriter standardError, Func<string, string, string>? remoteRepositoryUrlResolver, CancellationToken cancellationToken)
+	public ConventionRunner(string targetRepositoryRoot, GitClient targetGitClient, TextWriter standardOutput, TextWriter standardError, Func<string, string, string>? remoteRepositoryUrlResolver, Func<string, string, string[], Task<(int ExitCode, string StandardOutput, string StandardError)>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
 		m_targetRepositoryRoot = targetRepositoryRoot;
 		m_targetGitClient = targetGitClient;
@@ -14,6 +14,7 @@ internal sealed class ConventionRunner
 		m_standardError = standardError;
 		m_cancellationToken = cancellationToken;
 		m_remoteRepositoryUrlResolver = remoteRepositoryUrlResolver;
+		m_externalCommandRunner = externalCommandRunner;
 	}
 
 	public async Task<int> RunAsync(string topLevelConfigPath, bool openPr)
@@ -285,7 +286,18 @@ internal sealed class ConventionRunner
 
 	private static bool IsGitHubActions() => string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
 
-	private static async Task<ExternalCommandResult> RunExternalCommandAsync(string fileName, string workingDirectory, string[] arguments)
+	private async Task<ExternalCommandResult> RunExternalCommandAsync(string fileName, string workingDirectory, string[] arguments)
+	{
+		if (m_externalCommandRunner is not null)
+		{
+			var result = await m_externalCommandRunner(fileName, workingDirectory, arguments);
+			return new ExternalCommandResult(result.ExitCode, result.StandardOutput, result.StandardError);
+		}
+
+		return await RunExternalCommandCoreAsync(fileName, workingDirectory, arguments);
+	}
+
+	private static async Task<ExternalCommandResult> RunExternalCommandCoreAsync(string fileName, string workingDirectory, string[] arguments)
 	{
 		var startInfo = new ProcessStartInfo(fileName)
 		{
@@ -341,6 +353,7 @@ internal sealed class ConventionRunner
 	}
 
 	private readonly CancellationToken m_cancellationToken;
+	private readonly Func<string, string, string[], Task<(int ExitCode, string StandardOutput, string StandardError)>>? m_externalCommandRunner;
 	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);
 	private readonly Func<string, string, string>? m_remoteRepositoryUrlResolver;
 	private readonly TextWriter m_standardError;

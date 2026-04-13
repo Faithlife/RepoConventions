@@ -5,9 +5,9 @@ namespace RepoConventions;
 internal static class RepoConventionsCli
 {
 	public static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
-		=> await InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, cancellationToken);
+		=> await InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
 
-	internal static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<string, string, string>? remoteRepositoryUrlResolver, CancellationToken cancellationToken)
+	internal static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<string, string, string>? remoteRepositoryUrlResolver, Func<string, string, string[], Task<(int ExitCode, string StandardOutput, string StandardError)>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
 		var commitOption = new Option<bool>("--commit")
 		{
@@ -52,7 +52,7 @@ internal static class RepoConventionsCli
 		}
 
 		var gitClient = new GitClient(workingDirectory, cancellationToken);
-		var conventionRunner = new ConventionRunner(workingDirectory, gitClient, standardOutput, standardError, remoteRepositoryUrlResolver, cancellationToken);
+		var conventionRunner = new ConventionRunner(workingDirectory, gitClient, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, cancellationToken);
 		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption));
 	}
 

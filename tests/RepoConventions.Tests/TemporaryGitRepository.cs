@@ -41,16 +41,30 @@ internal sealed class TemporaryGitRepository : IDisposable
 
 	public Task<string> ReadFileAsync(string relativePath) => File.ReadAllTextAsync(Path.Combine(RootPath, relativePath));
 
+	public async Task AddRemoteAsync(string name, string pathOrUri) => await RunGitAsync(RootPath, "remote", "add", name, pathOrUri);
+
 	public async Task CommitAllAsync(string message)
 	{
 		await RunGitAsync(RootPath, "add", "-A");
 		await RunGitAsync(RootPath, "commit", "-m", message);
 	}
 
+	public async Task CreateBranchAsync(string branchName) => await RunGitAsync(RootPath, "branch", branchName);
+
 	public async Task CreateTagAsync(string tagName) => await RunGitAsync(RootPath, "tag", tagName);
+
+	public async Task DeleteBranchAsync(string branchName) => await RunGitAsync(RootPath, "branch", "-D", branchName);
+
+	public async Task DetachHeadAsync() => await RunGitAsync(RootPath, "switch", "--detach", "HEAD");
 
 	public async Task<string> GetHeadCommitMessageAsync() =>
 		(await RunGitAndCaptureOutputAsync(RootPath, "log", "-1", "--pretty=%B")).Trim();
+
+	public async Task<string> GetHeadCommitShaAsync() =>
+		(await RunGitAndCaptureOutputAsync(RootPath, "rev-parse", "HEAD")).Trim();
+
+	public async Task<string> GetCurrentBranchAsync() =>
+		(await RunGitAndCaptureOutputAsync(RootPath, "branch", "--show-current")).Trim();
 
 	public async Task<string[]> GetRecentCommitMessagesAsync(int count)
 	{
@@ -60,6 +74,21 @@ internal sealed class TemporaryGitRepository : IDisposable
 
 	public async Task<string> GetWorkingTreeStatusAsync() =>
 		(await RunGitAndCaptureOutputAsync(RootPath, "status", "--porcelain", "--untracked-files=normal")).Trim();
+
+	public async Task PushAsync(string remoteName, string branchName, bool setUpstream = false)
+	{
+		if (setUpstream)
+		{
+			await RunGitAsync(RootPath, "push", "-u", remoteName, branchName);
+			return;
+		}
+
+		await RunGitAsync(RootPath, "push", remoteName, branchName);
+	}
+
+	public async Task SwitchToBranchAsync(string branchName) => await RunGitAsync(RootPath, "switch", branchName);
+
+	public async Task SwitchToNewBranchAsync(string branchName) => await RunGitAsync(RootPath, "switch", "-c", branchName);
 
 	public void Dispose()
 	{

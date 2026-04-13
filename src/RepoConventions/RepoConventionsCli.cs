@@ -21,24 +21,24 @@ internal static class RepoConventionsCli
 		rootCommand.Options.Add(openPrOption);
 
 		if (args.Length == 0)
-			return await InvokeHelpAsync(rootCommand, standardOutput, standardError).ConfigureAwait(false);
+			return await InvokeHelpAsync(rootCommand, standardOutput, standardError);
 
 		var parseResult = rootCommand.Parse(args);
 		if (parseResult.Errors.Count != 0)
-			return await InvokeParseResultAsync(parseResult, standardOutput, standardError).ConfigureAwait(false);
+			return await InvokeParseResultAsync(parseResult, standardOutput, standardError);
 
 		if (!parseResult.GetValue(commitOption) && !parseResult.GetValue(openPrOption))
-			return await InvokeHelpAsync(rootCommand, standardOutput, standardError).ConfigureAwait(false);
+			return await InvokeHelpAsync(rootCommand, standardOutput, standardError);
 
-		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken).ConfigureAwait(false))
+		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
 		{
-			await standardError.WriteLineAsync("The CLI must be run from the repository root.").ConfigureAwait(false);
+			await standardError.WriteLineAsync("The CLI must be run from the repository root.");
 			return 1;
 		}
 
-		if (!await GitRepositoryValidator.IsCleanAsync(workingDirectory, cancellationToken).ConfigureAwait(false))
+		if (!await GitRepositoryValidator.IsCleanAsync(workingDirectory, cancellationToken))
 		{
-			await standardError.WriteLineAsync("The CLI must be run from a clean repository.").ConfigureAwait(false);
+			await standardError.WriteLineAsync("The CLI must be run from a clean repository.");
 			return 1;
 		}
 
@@ -57,14 +57,14 @@ internal static class RepoConventionsCli
 		{
 			Console.SetOut(standardOutput);
 			Console.SetError(standardError);
-			return await parseResult.InvokeAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
+			return await parseResult.InvokeAsync(cancellationToken: CancellationToken.None);
 		}
 		finally
 		{
 			Console.SetOut(originalOutput);
 			Console.SetError(originalError);
-			await standardOutput.FlushAsync().ConfigureAwait(false);
-			await standardError.FlushAsync().ConfigureAwait(false);
+			await standardOutput.FlushAsync();
+			await standardError.FlushAsync();
 		}
 	}
 
@@ -72,7 +72,7 @@ internal static class RepoConventionsCli
 	{
 		public static async Task<bool> IsRepositoryRootAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await RunGitAsync(workingDirectory, cancellationToken, "rev-parse", "--show-toplevel").ConfigureAwait(false);
+			var result = await RunGitAsync(workingDirectory, cancellationToken, "rev-parse", "--show-toplevel");
 			if (result.ExitCode != 0)
 				return false;
 
@@ -82,7 +82,7 @@ internal static class RepoConventionsCli
 
 		public static async Task<bool> IsCleanAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await RunGitAsync(workingDirectory, cancellationToken, "status", "--porcelain", "--untracked-files=normal").ConfigureAwait(false);
+			var result = await RunGitAsync(workingDirectory, cancellationToken, "status", "--porcelain", "--untracked-files=normal");
 			return result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardOutput);
 		}
 
@@ -102,12 +102,12 @@ internal static class RepoConventionsCli
 			using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start git.");
 			var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
 			var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-			await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+			await process.WaitForExitAsync(cancellationToken);
 
 			return new GitResult(
 				process.ExitCode,
-				await standardOutputTask.ConfigureAwait(false),
-				await standardErrorTask.ConfigureAwait(false));
+				await standardOutputTask,
+				await standardErrorTask);
 		}
 
 		private sealed record GitResult(int ExitCode, string StandardOutput, string StandardError);

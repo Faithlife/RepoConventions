@@ -8,9 +8,9 @@ internal sealed class GitRepoTests
 	[Test]
 	public async Task CommitModeSucceedsFromCleanRepositoryRoot()
 	{
-		using var repo = await TemporaryGitRepository.CreateAsync().ConfigureAwait(false);
+		using var repo = await TemporaryGitRepository.CreateAsync();
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath).ConfigureAwait(false);
+		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -22,10 +22,10 @@ internal sealed class GitRepoTests
 	[Test]
 	public async Task CommitModeFailsOutsideRepositoryRoot()
 	{
-		using var repo = await TemporaryGitRepository.CreateAsync().ConfigureAwait(false);
+		using var repo = await TemporaryGitRepository.CreateAsync();
 		var nestedDirectory = repo.CreateDirectory("src");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], nestedDirectory).ConfigureAwait(false);
+		var result = await CliInvocation.InvokeAsync(["--commit"], nestedDirectory);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -37,10 +37,10 @@ internal sealed class GitRepoTests
 	[Test]
 	public async Task CommitModeFailsWhenRepositoryIsDirty()
 	{
-		using var repo = await TemporaryGitRepository.CreateAsync().ConfigureAwait(false);
+		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile("untracked.txt", "content");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath).ConfigureAwait(false);
+		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -58,7 +58,7 @@ internal sealed class GitRepoTests
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
 
-			var exitCode = await RepoConventions.RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, CancellationToken.None).ConfigureAwait(false);
+			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, CancellationToken.None);
 
 			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
 		}
@@ -75,9 +75,9 @@ internal sealed class GitRepoTests
 			var rootPath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Tests.{Guid.NewGuid():N}");
 			Directory.CreateDirectory(rootPath);
 
-			await RunGitAsync(rootPath, "init", "--initial-branch=main").ConfigureAwait(false);
-			await RunGitAsync(rootPath, "config", "user.name", "RepoConventions Tests").ConfigureAwait(false);
-			await RunGitAsync(rootPath, "config", "user.email", "repo-conventions-tests@example.com").ConfigureAwait(false);
+			await RunGitAsync(rootPath, "init", "--initial-branch=main");
+			await RunGitAsync(rootPath, "config", "user.name", "RepoConventions Tests");
+			await RunGitAsync(rootPath, "config", "user.email", "repo-conventions-tests@example.com");
 
 			return new TemporaryGitRepository(rootPath);
 		}
@@ -116,9 +116,9 @@ internal sealed class GitRepoTests
 				startInfo.ArgumentList.Add(argument);
 
 			using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start git.");
-			var standardOutput = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-			var standardError = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-			await process.WaitForExitAsync().ConfigureAwait(false);
+			var standardOutput = await process.StandardOutput.ReadToEndAsync();
+			var standardError = await process.StandardError.ReadToEndAsync();
+			await process.WaitForExitAsync();
 
 			if (process.ExitCode != 0)
 				throw new AssertionException($"git {string.Join(' ', arguments)} failed with exit code {process.ExitCode}.{Environment.NewLine}{standardOutput}{standardError}");

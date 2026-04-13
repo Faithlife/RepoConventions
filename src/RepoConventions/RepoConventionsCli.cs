@@ -91,12 +91,11 @@ internal static class RepoConventionsCli
 	{
 		public static async Task<bool> IsRepositoryRootAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await GitClient.RunGitAsync(workingDirectory, ["rev-parse", "--show-toplevel"], cancellationToken);
+			var result = await GitClient.RunGitAsync(workingDirectory, ["rev-parse", "--show-prefix"], cancellationToken);
 			if (result.ExitCode != 0)
 				return false;
 
-			var repositoryRoot = result.StandardOutput.Trim();
-			return Path.GetFullPath(repositoryRoot) == Path.GetFullPath(workingDirectory);
+			return string.IsNullOrWhiteSpace(result.StandardOutput);
 		}
 
 		public static async Task<bool> IsCleanAsync(string workingDirectory, CancellationToken cancellationToken)

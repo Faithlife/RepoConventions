@@ -1,8 +1,7 @@
 <Project>
 
   <PropertyGroup>
-    <VersionPrefix>0.0.0</VersionPrefix>
-    <PackageValidationBaselineVersion>0.0.0</PackageValidationBaselineVersion>
+    <VersionPrefix>0.1.0</VersionPrefix>
     <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -21,14 +20,10 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-all</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>false</IsPackable>
     <IsTestProject>false</IsTestProject>
     <SelfContained>false</SelfContained>
     <UseArtifactsOutput>true</UseArtifactsOutput>
-    <EnableStrictModeForCompatibleFrameworksInPackageValidation>true</EnableStrictModeForCompatibleFrameworksInPackageValidation>
-    <EnableStrictModeForCompatibleTfms>true</EnableStrictModeForCompatibleTfms>
-    <DisablePackageBaselineValidation Condition=" $(PackageValidationBaselineVersion) == $(VersionPrefix) or $(PackageValidationBaselineVersion) == '0.0.0' ">true</DisablePackageBaselineValidation>
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>

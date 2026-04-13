@@ -9,7 +9,6 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>repo-conventions</ToolCommandName>
     <PackageId>repo-conventions</PackageId>
-    <EnablePackageValidation>true</EnablePackageValidation>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

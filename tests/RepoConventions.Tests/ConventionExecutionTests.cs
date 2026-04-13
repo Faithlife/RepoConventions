@@ -151,7 +151,7 @@ internal sealed class ConventionExecutionTests
 
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
-			- path: octocat/conventions/conventions/add-file@main
+			- path: local-test/remote-conventions/conventions/add-file@main
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
@@ -159,7 +159,7 @@ internal sealed class ConventionExecutionTests
 			["--commit"],
 			repo.RootPath,
 			(owner, repository) =>
-				owner == "octocat" && repository == "conventions"
+				owner == "local-test" && repository == "remote-conventions"
 					? remoteRepo.GetRepositoryUri()
 					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
 
@@ -190,7 +190,7 @@ internal sealed class ConventionExecutionTests
 
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
-			- path: octocat/conventions/conventions/versioned@v1
+			- path: local-test/remote-conventions/conventions/versioned@v1
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
@@ -198,7 +198,7 @@ internal sealed class ConventionExecutionTests
 			["--commit"],
 			repo.RootPath,
 			(owner, repository) =>
-				owner == "octocat" && repository == "conventions"
+				owner == "local-test" && repository == "remote-conventions"
 					? remoteRepo.GetRepositoryUri()
 					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
 

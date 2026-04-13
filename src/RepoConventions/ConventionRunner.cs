@@ -6,13 +6,14 @@ namespace RepoConventions;
 
 internal sealed class ConventionRunner
 {
-	public ConventionRunner(string targetRepositoryRoot, GitClient targetGitClient, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+	public ConventionRunner(string targetRepositoryRoot, GitClient targetGitClient, TextWriter standardOutput, TextWriter standardError, Func<string, string, string>? remoteRepositoryUrlResolver, CancellationToken cancellationToken)
 	{
 		m_targetRepositoryRoot = targetRepositoryRoot;
 		m_targetGitClient = targetGitClient;
 		m_standardOutput = standardOutput;
 		m_standardError = standardError;
 		m_cancellationToken = cancellationToken;
+		m_remoteRepositoryUrlResolver = remoteRepositoryUrlResolver;
 	}
 
 	public async Task<int> RunAsync(string topLevelConfigPath, bool openPr)
@@ -195,8 +196,8 @@ internal sealed class ConventionRunner
 		return clonePath;
 	}
 
-	private static string GetRemoteRepositoryUrl(RemoteConventionPath remotePath) =>
-		RemoteRepositoryUrlResolver?.Invoke(remotePath.Owner, remotePath.Repository) ?? $"https://github.com/{remotePath.Owner}/{remotePath.Repository}.git";
+	private string GetRemoteRepositoryUrl(RemoteConventionPath remotePath) =>
+		m_remoteRepositoryUrlResolver?.Invoke(remotePath.Owner, remotePath.Repository) ?? $"https://github.com/{remotePath.Owner}/{remotePath.Repository}.git";
 
 	private async Task<PullRequestPreparation?> PreparePullRequestAsync()
 	{
@@ -339,10 +340,9 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	internal static Func<string, string, string>? RemoteRepositoryUrlResolver { get; set; }
-
 	private readonly CancellationToken m_cancellationToken;
 	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);
+	private readonly Func<string, string, string>? m_remoteRepositoryUrlResolver;
 	private readonly TextWriter m_standardError;
 	private readonly TextWriter m_standardOutput;
 	private readonly string m_targetRepositoryRoot;

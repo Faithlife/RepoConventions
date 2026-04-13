@@ -2,7 +2,6 @@ using NUnit.Framework;
 
 namespace RepoConventions.Tests;
 
-[NonParallelizable]
 internal sealed class ConventionExecutionTests
 {
 	[Test]
@@ -156,12 +155,13 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		using var remoteRepositoryUrlResolverScope = UseRemoteRepositoryUrlResolver((owner, repository) =>
-			owner == "octocat" && repository == "conventions"
-				? remoteRepo.GetRepositoryUri()
-				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
-
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(
+			["--commit"],
+			repo.RootPath,
+			(owner, repository) =>
+				owner == "octocat" && repository == "conventions"
+					? remoteRepo.GetRepositoryUri()
+					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -194,12 +194,13 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		using var remoteRepositoryUrlResolverScope = UseRemoteRepositoryUrlResolver((owner, repository) =>
-			owner == "octocat" && repository == "conventions"
-				? remoteRepo.GetRepositoryUri()
-				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
-
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(
+			["--commit"],
+			repo.RootPath,
+			(owner, repository) =>
+				owner == "octocat" && repository == "conventions"
+					? remoteRepo.GetRepositoryUri()
+					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -213,27 +214,15 @@ internal sealed class ConventionExecutionTests
 
 	private static class CliInvocation
 	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory)
+		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<string, string, string>? remoteRepositoryUrlResolver = null)
 		{
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
 
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, CancellationToken.None);
+			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, CancellationToken.None);
 
 			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
 		}
-	}
-
-	private static DisposableAction UseRemoteRepositoryUrlResolver(Func<string, string, string> resolver)
-	{
-		var previous = ConventionRunner.RemoteRepositoryUrlResolver;
-		ConventionRunner.RemoteRepositoryUrlResolver = resolver;
-		return new DisposableAction(() => ConventionRunner.RemoteRepositoryUrlResolver = previous);
-	}
-
-	private sealed class DisposableAction(Action dispose) : IDisposable
-	{
-		public void Dispose() => dispose();
 	}
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];

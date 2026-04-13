@@ -5,6 +5,9 @@ namespace RepoConventions;
 internal static class RepoConventionsCli
 {
 	public static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+		=> await InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, cancellationToken);
+
+	internal static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<string, string, string>? remoteRepositoryUrlResolver, CancellationToken cancellationToken)
 	{
 		var commitOption = new Option<bool>("--commit")
 		{
@@ -49,7 +52,7 @@ internal static class RepoConventionsCli
 		}
 
 		var gitClient = new GitClient(workingDirectory, cancellationToken);
-		var conventionRunner = new ConventionRunner(workingDirectory, gitClient, standardOutput, standardError, cancellationToken);
+		var conventionRunner = new ConventionRunner(workingDirectory, gitClient, standardOutput, standardError, remoteRepositoryUrlResolver, cancellationToken);
 		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption));
 	}
 

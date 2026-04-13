@@ -37,6 +37,8 @@ internal sealed class TemporaryGitRepository : IDisposable
 
 	public bool FileExists(string relativePath) => File.Exists(Path.Combine(RootPath, relativePath));
 
+	public string GetRepositoryUri() => new Uri(RootPath + Path.DirectorySeparatorChar).AbsoluteUri;
+
 	public Task<string> ReadFileAsync(string relativePath) => File.ReadAllTextAsync(Path.Combine(RootPath, relativePath));
 
 	public async Task CommitAllAsync(string message)
@@ -44,6 +46,8 @@ internal sealed class TemporaryGitRepository : IDisposable
 		await RunGitAsync(RootPath, "add", "-A");
 		await RunGitAsync(RootPath, "commit", "-m", message);
 	}
+
+	public async Task CreateTagAsync(string tagName) => await RunGitAsync(RootPath, "tag", tagName);
 
 	public async Task<string> GetHeadCommitMessageAsync() =>
 		(await RunGitAndCaptureOutputAsync(RootPath, "log", "-1", "--pretty=%B")).Trim();

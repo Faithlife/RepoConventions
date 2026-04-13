@@ -178,7 +178,7 @@ internal sealed class ConventionRunner
 
 		var clonePath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Remote.{Guid.NewGuid():N}");
 		Directory.CreateDirectory(clonePath);
-		var repositoryUrl = $"https://github.com/{remotePath.Owner}/{remotePath.Repository}.git";
+		var repositoryUrl = GetRemoteRepositoryUrl(remotePath);
 
 		var cloneResult = await GitClient.RunGitAsync(m_targetRepositoryRoot, m_cancellationToken, "clone", repositoryUrl, clonePath);
 		if (cloneResult.ExitCode != 0)
@@ -194,6 +194,9 @@ internal sealed class ConventionRunner
 		m_remoteCloneCache.Add(remotePath.Identity, clonePath);
 		return clonePath;
 	}
+
+	private static string GetRemoteRepositoryUrl(RemoteConventionPath remotePath) =>
+		RemoteRepositoryUrlResolver?.Invoke(remotePath.Owner, remotePath.Repository) ?? $"https://github.com/{remotePath.Owner}/{remotePath.Repository}.git";
 
 	private async Task<PullRequestPreparation?> PreparePullRequestAsync()
 	{
@@ -335,6 +338,8 @@ internal sealed class ConventionRunner
 			return new RemoteConventionPath(owner, repository, subPath, reference);
 		}
 	}
+
+	internal static Func<string, string, string>? RemoteRepositoryUrlResolver { get; set; }
 
 	private readonly CancellationToken m_cancellationToken;
 	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);

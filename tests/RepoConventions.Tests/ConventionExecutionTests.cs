@@ -2,6 +2,7 @@ using NUnit.Framework;
 
 namespace RepoConventions.Tests;
 
+[NonParallelizable]
 internal sealed class ConventionExecutionTests
 {
 	[Test]
@@ -138,6 +139,76 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
+	[Test]
+	public async Task CommitModeAppliesRemoteExecutableConventionAndCreatesCommit()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'remote.txt') -Value 'remote'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: octocat/conventions/conventions/add-file@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		using var remoteRepositoryUrlResolverScope = UseRemoteRepositoryUrlResolver((owner, repository) =>
+			owner == "octocat" && repository == "conventions"
+				? remoteRepo.GetRepositoryUri()
+				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
+
+		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("remote.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeAppliesRemoteConventionAtRequestedRef()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/versioned/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'version.txt') -Value 'v1'
+			""");
+		await remoteRepo.CommitAllAsync("Version 1.");
+		await remoteRepo.CreateTagAsync("v1");
+		remoteRepo.WriteFile("conventions/versioned/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'version.txt') -Value 'main'
+			""");
+		await remoteRepo.CommitAllAsync("Version main.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: octocat/conventions/conventions/versioned@v1
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		using var remoteRepositoryUrlResolverScope = UseRemoteRepositoryUrlResolver((owner, repository) =>
+			owner == "octocat" && repository == "conventions"
+				? remoteRepo.GetRepositoryUri()
+				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
+
+		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(await repo.ReadFileAsync("version.txt"), Does.Contain("v1"));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention versioned."));
+		}
+	}
+
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
 
 	private static class CliInvocation
@@ -151,6 +222,18 @@ internal sealed class ConventionExecutionTests
 
 			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
 		}
+	}
+
+	private static DisposableAction UseRemoteRepositoryUrlResolver(Func<string, string, string> resolver)
+	{
+		var previous = ConventionRunner.RemoteRepositoryUrlResolver;
+		ConventionRunner.RemoteRepositoryUrlResolver = resolver;
+		return new DisposableAction(() => ConventionRunner.RemoteRepositoryUrlResolver = previous);
+	}
+
+	private sealed class DisposableAction(Action dispose) : IDisposable
+	{
+		public void Dispose() => dispose();
 	}
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];

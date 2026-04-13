@@ -52,13 +52,15 @@ internal static class RepoConventionsCli
 		}
 
 		var gitClient = new GitClient(workingDirectory);
-		var conventionRunner = new ConventionRunner(new ConventionRunnerSettings(
-			workingDirectory,
-			gitClient,
-			standardOutput,
-			standardError,
-			remoteRepositoryUrlResolver,
-			externalCommandRunner));
+		var conventionRunner = new ConventionRunner(new ConventionRunnerSettings
+		{
+			TargetRepositoryRoot = workingDirectory,
+			TargetGitClient = gitClient,
+			StandardOutput = standardOutput,
+			StandardError = standardError,
+			RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
+			ExternalCommandRunner = externalCommandRunner,
+		});
 		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption), cancellationToken);
 	}
 
@@ -89,7 +91,7 @@ internal static class RepoConventionsCli
 	{
 		public static async Task<bool> IsRepositoryRootAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await GitClient.RunGitAsync(workingDirectory, cancellationToken, "rev-parse", "--show-toplevel");
+			var result = await GitClient.RunGitAsync(workingDirectory, ["rev-parse", "--show-toplevel"], cancellationToken);
 			if (result.ExitCode != 0)
 				return false;
 
@@ -99,7 +101,7 @@ internal static class RepoConventionsCli
 
 		public static async Task<bool> IsCleanAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await GitClient.RunGitAsync(workingDirectory, cancellationToken, "status", "--porcelain", "--untracked-files=normal");
+			var result = await GitClient.RunGitAsync(workingDirectory, ["status", "--porcelain", "--untracked-files=normal"], cancellationToken);
 			return result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardOutput);
 		}
 	}

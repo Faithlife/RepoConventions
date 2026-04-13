@@ -1,9 +1,16 @@
 namespace RepoConventions;
 
-internal readonly record struct ConventionRunnerSettings(
-	string TargetRepositoryRoot,
-	GitClient TargetGitClient,
-	TextWriter StandardOutput,
-	TextWriter StandardError,
-	RemoteRepositoryUrlResolver? RemoteRepositoryUrlResolver = null,
-	ExternalCommandRunner? ExternalCommandRunner = null);
+internal sealed class ConventionRunnerSettings
+{
+	public required string TargetRepositoryRoot { get; init; }
+
+	public required GitClient TargetGitClient { get; init; }
+
+	public required TextWriter StandardOutput { get; init; }
+
+	public required TextWriter StandardError { get; init; }
+
+	public RemoteRepositoryUrlResolver? RemoteRepositoryUrlResolver { get; init; }
+
+	public ExternalCommandRunner? ExternalCommandRunner { get; init; }
+}

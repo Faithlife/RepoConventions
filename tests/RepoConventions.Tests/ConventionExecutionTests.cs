@@ -158,10 +158,10 @@ internal sealed class ConventionExecutionTests
 		var result = await CliInvocation.InvokeAsync(
 			["--commit"],
 			repo.RootPath,
-			new RemoteRepositoryUrlResolver((owner, repository) =>
-				owner == "local-test" && repository == "remote-conventions"
+			new RemoteRepositoryUrlResolver(request =>
+				request is { Owner: "local-test", Repository: "remote-conventions" }
 					? remoteRepo.GetRepositoryUri()
-					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}.")));
+					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.")));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -197,10 +197,10 @@ internal sealed class ConventionExecutionTests
 		var result = await CliInvocation.InvokeAsync(
 			["--commit"],
 			repo.RootPath,
-			new RemoteRepositoryUrlResolver((owner, repository) =>
-				owner == "local-test" && repository == "remote-conventions"
+			new RemoteRepositoryUrlResolver(request =>
+				request is { Owner: "local-test", Repository: "remote-conventions" }
 					? remoteRepo.GetRepositoryUri()
-					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}.")));
+					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.")));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -336,10 +336,10 @@ internal sealed class ConventionExecutionTests
 	}
 
 	private static RemoteRepositoryUrlResolver LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
-		new((owner, repository) =>
-			owner == "local-test" && repository == "remote-conventions"
+		request =>
+			request is { Owner: "local-test", Repository: "remote-conventions" }
 				? remoteRepo.GetRepositoryUri()
-				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
+				: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.");
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
 }

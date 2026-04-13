@@ -20,9 +20,9 @@ internal sealed class TemporaryGitRepository : IDisposable
 		var rootPath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Tests.{Guid.NewGuid():N}");
 		Directory.CreateDirectory(rootPath);
 
-		await RunGitAsync(rootPath, "init", "--initial-branch=main");
-		await RunGitAsync(rootPath, "config", "user.name", "RepoConventions Tests");
-		await RunGitAsync(rootPath, "config", "user.email", "repo-conventions-tests@example.com");
+		await RunGitAsync(rootPath, ["init", "--initial-branch=main"]);
+		await RunGitAsync(rootPath, ["config", "user.name", "RepoConventions Tests"]);
+		await RunGitAsync(rootPath, ["config", "user.email", "repo-conventions-tests@example.com"]);
 
 		return new TemporaryGitRepository(rootPath, isBare: false);
 	}
@@ -31,7 +31,7 @@ internal sealed class TemporaryGitRepository : IDisposable
 	{
 		var rootPath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Tests.Bare.{Guid.NewGuid():N}");
 		Directory.CreateDirectory(rootPath);
-		await RunGitAsync(Path.GetTempPath(), "init", "--bare", rootPath);
+		await RunGitAsync(Path.GetTempPath(), ["init", "--bare", rootPath]);
 		return new TemporaryGitRepository(rootPath, isBare: true);
 	}
 
@@ -64,64 +64,64 @@ internal sealed class TemporaryGitRepository : IDisposable
 	public async Task AddRemoteAsync(string name, string pathOrUri)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "remote", "add", name, pathOrUri);
+		await RunGitAsync(RootPath, ["remote", "add", name, pathOrUri]);
 	}
 
 	public async Task CommitAllAsync(string message)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "add", "-A");
-		await RunGitAsync(RootPath, "commit", "-m", message);
+		await RunGitAsync(RootPath, ["add", "-A"]);
+		await RunGitAsync(RootPath, ["commit", "-m", message]);
 	}
 
 	public async Task CreateBranchAsync(string branchName)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "branch", branchName);
+		await RunGitAsync(RootPath, ["branch", branchName]);
 	}
 
 	public async Task CreateTagAsync(string tagName)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "tag", tagName);
+		await RunGitAsync(RootPath, ["tag", tagName]);
 	}
 
 	public async Task DeleteBranchAsync(string branchName)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "branch", "-D", branchName);
+		await RunGitAsync(RootPath, ["branch", "-D", branchName]);
 	}
 
 	public async Task DetachHeadAsync()
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "switch", "--detach", "HEAD");
+		await RunGitAsync(RootPath, ["switch", "--detach", "HEAD"]);
 	}
 
 	public async Task<string> GetHeadCommitMessageAsync() =>
-		(await RunGitAndCaptureOutputAsync(RootPath, "log", "-1", "--pretty=%B")).Trim();
+		(await RunGitAndCaptureOutputAsync(RootPath, ["log", "-1", "--pretty=%B"])).Trim();
 
 	public async Task<string> GetHeadCommitShaAsync() =>
-		(await RunGitAndCaptureOutputAsync(RootPath, "rev-parse", "HEAD")).Trim();
+		(await RunGitAndCaptureOutputAsync(RootPath, ["rev-parse", "HEAD"])).Trim();
 
 	public async Task<string> GetHeadCommitShaAsync(string branchName) =>
-		(await RunGitAndCaptureOutputAsync(RootPath, "rev-parse", $"refs/heads/{branchName}")).Trim();
+		(await RunGitAndCaptureOutputAsync(RootPath, ["rev-parse", $"refs/heads/{branchName}"])).Trim();
 
 	public async Task<string> GetCurrentBranchAsync() =>
-		(await RunGitAndCaptureOutputAsync(RootPath, "branch", "--show-current")).Trim();
+		(await RunGitAndCaptureOutputAsync(RootPath, ["branch", "--show-current"])).Trim();
 
 	public async Task<string[]> GetRecentCommitMessagesAsync(int count)
 	{
-		var output = await RunGitAndCaptureOutputAsync(RootPath, "log", $"-{count}", "--pretty=%B%x00");
+		var output = await RunGitAndCaptureOutputAsync(RootPath, ["log", $"-{count}", "--pretty=%B%x00"]);
 		return output.Split('\0', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 	}
 
 	public async Task<string> GetWorkingTreeStatusAsync() =>
-		(await RunGitAndCaptureOutputAsync(RootPath, "status", "--porcelain", "--untracked-files=normal")).Trim();
+		(await RunGitAndCaptureOutputAsync(RootPath, ["status", "--porcelain", "--untracked-files=normal"])).Trim();
 
 	public async Task<bool> HasBranchAsync(string branchName)
 	{
-		var result = await RunGitAndCaptureResultAsync(RootPath, "show-ref", "--verify", "--quiet", $"refs/heads/{branchName}");
+		var result = await RunGitAndCaptureResultAsync(RootPath, ["show-ref", "--verify", "--quiet", $"refs/heads/{branchName}"]);
 		return result.ExitCode == 0;
 	}
 
@@ -130,23 +130,23 @@ internal sealed class TemporaryGitRepository : IDisposable
 		VerifyNotBare();
 		if (setUpstream)
 		{
-			await RunGitAsync(RootPath, "push", "-u", remoteName, branchName);
+			await RunGitAsync(RootPath, ["push", "-u", remoteName, branchName]);
 			return;
 		}
 
-		await RunGitAsync(RootPath, "push", remoteName, branchName);
+		await RunGitAsync(RootPath, ["push", remoteName, branchName]);
 	}
 
 	public async Task SwitchToBranchAsync(string branchName)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "switch", branchName);
+		await RunGitAsync(RootPath, ["switch", branchName]);
 	}
 
 	public async Task SwitchToNewBranchAsync(string branchName)
 	{
 		VerifyNotBare();
-		await RunGitAsync(RootPath, "switch", "-c", branchName);
+		await RunGitAsync(RootPath, ["switch", "-c", branchName]);
 	}
 
 	public void Dispose()
@@ -191,14 +191,14 @@ internal sealed class TemporaryGitRepository : IDisposable
 		File.SetAttributes(rootPath, FileAttributes.Normal);
 	}
 
-	private static async Task RunGitAsync(string workingDirectory, params string[] arguments)
+	private static async Task RunGitAsync(string workingDirectory, IReadOnlyList<string> arguments)
 	{
 		var result = await RunGitAndCaptureResultAsync(workingDirectory, arguments);
 		if (result.ExitCode != 0)
 			throw new AssertionException($"git {string.Join(' ', arguments)} failed with exit code {result.ExitCode}.{Environment.NewLine}{result.StandardOutput}{result.StandardError}");
 	}
 
-	private static async Task<string> RunGitAndCaptureOutputAsync(string workingDirectory, params string[] arguments)
+	private static async Task<string> RunGitAndCaptureOutputAsync(string workingDirectory, IReadOnlyList<string> arguments)
 	{
 		var result = await RunGitAndCaptureResultAsync(workingDirectory, arguments);
 		if (result.ExitCode != 0)
@@ -207,7 +207,7 @@ internal sealed class TemporaryGitRepository : IDisposable
 		return result.StandardOutput;
 	}
 
-	private static async Task<GitCommandResult> RunGitAndCaptureResultAsync(string workingDirectory, params string[] arguments)
+	private static async Task<GitCommandResult> RunGitAndCaptureResultAsync(string workingDirectory, IReadOnlyList<string> arguments)
 	{
 		var startInfo = new ProcessStartInfo("git")
 		{

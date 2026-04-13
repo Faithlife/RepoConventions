@@ -173,13 +173,13 @@ internal sealed class ConventionRunner
 		Directory.CreateDirectory(clonePath);
 		var repositoryUrl = GetRemoteRepositoryUrl(remotePath);
 
-		var cloneResult = await GitClient.RunGitAsync(m_settings.TargetRepositoryRoot, cancellationToken, "clone", repositoryUrl, clonePath);
+		var cloneResult = await GitClient.RunGitAsync(m_settings.TargetRepositoryRoot, ["clone", repositoryUrl, clonePath], cancellationToken);
 		if (cloneResult.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to clone remote convention repository '{repositoryUrl}': {cloneResult.StandardError}{cloneResult.StandardOutput}");
 
 		if (!string.IsNullOrEmpty(remotePath.Ref))
 		{
-			var checkoutResult = await GitClient.RunGitAsync(clonePath, cancellationToken, "checkout", remotePath.Ref);
+			var checkoutResult = await GitClient.RunGitAsync(clonePath, ["checkout", remotePath.Ref], cancellationToken);
 			if (checkoutResult.ExitCode != 0)
 				throw new InvalidOperationException($"Failed to checkout ref '{remotePath.Ref}' in '{repositoryUrl}': {checkoutResult.StandardError}{checkoutResult.StandardOutput}");
 		}
@@ -189,7 +189,7 @@ internal sealed class ConventionRunner
 	}
 
 	private string GetRemoteRepositoryUrl(RemoteConventionPath remotePath) =>
-		m_settings.RemoteRepositoryUrlResolver?.GetRepositoryUrl(remotePath.Owner, remotePath.Repository) ?? $"https://github.com/{remotePath.Owner}/{remotePath.Repository}.git";
+		m_settings.RemoteRepositoryUrlResolver?.Invoke(new RemoteRepositoryUrlRequest(remotePath.Owner, remotePath.Repository)) ?? $"https://github.com/{remotePath.Owner}/{remotePath.Repository}.git";
 
 	private async Task<PullRequestPreparation?> PreparePullRequestAsync(CancellationToken cancellationToken)
 	{
@@ -234,7 +234,7 @@ internal sealed class ConventionRunner
 
 	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, IReadOnlyList<string> appliedConventions, CancellationToken cancellationToken)
 	{
-		var newCommits = await m_settings.TargetGitClient.RunAsync(cancellationToken, "rev-list", "--count", $"{pullRequest.StartingBranch}..HEAD");
+		var newCommits = await m_settings.TargetGitClient.RunAsync(["rev-list", "--count", $"{pullRequest.StartingBranch}..HEAD"], cancellationToken);
 		if (newCommits.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to compare branches: {newCommits.StandardError}{newCommits.StandardOutput}");
 
@@ -277,15 +277,15 @@ internal sealed class ConventionRunner
 
 	private static bool IsGitHubActions() => string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
 
-	private async Task<ExternalCommandResult> RunExternalCommandAsync(string fileName, string workingDirectory, string[] arguments, CancellationToken cancellationToken)
+	private async Task<ExternalCommandResult> RunExternalCommandAsync(string fileName, string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
 	{
 		if (m_settings.ExternalCommandRunner is { } externalCommandRunner)
-			return await externalCommandRunner.RunAsync(fileName, workingDirectory, arguments, cancellationToken);
+			return await externalCommandRunner(new ExternalCommandRequest(fileName, workingDirectory, arguments), cancellationToken);
 
 		return await RunExternalCommandCoreAsync(fileName, workingDirectory, arguments, cancellationToken);
 	}
 
-	private static async Task<ExternalCommandResult> RunExternalCommandCoreAsync(string fileName, string workingDirectory, string[] arguments, CancellationToken cancellationToken)
+	private static async Task<ExternalCommandResult> RunExternalCommandCoreAsync(string fileName, string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
 	{
 		var startInfo = new ProcessStartInfo(fileName)
 		{

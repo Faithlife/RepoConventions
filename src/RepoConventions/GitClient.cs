@@ -8,85 +8,85 @@ internal sealed class GitClient
 
 	public string RepositoryRoot { get; }
 
-	public Task<GitCommandResult> RunAsync(CancellationToken cancellationToken, params string[] arguments) => RunGitAsync(RepositoryRoot, cancellationToken, arguments);
+	public Task<GitCommandResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) => RunGitAsync(RepositoryRoot, arguments, cancellationToken);
 
 	public async Task<string> GetHeadAsync(CancellationToken cancellationToken)
 	{
-		var result = await RunAsync(cancellationToken, "rev-parse", "HEAD");
+		var result = await RunAsync(["rev-parse", "HEAD"], cancellationToken);
 		EnsureSuccess(result, "rev-parse HEAD");
 		return result.StandardOutput.Trim();
 	}
 
 	public async Task<string> GetCurrentBranchAsync(CancellationToken cancellationToken)
 	{
-		var result = await RunAsync(cancellationToken, "branch", "--show-current");
+		var result = await RunAsync(["branch", "--show-current"], cancellationToken);
 		EnsureSuccess(result, "branch --show-current");
 		return result.StandardOutput.Trim();
 	}
 
 	public async Task<bool> HasUnpushedCommitsAsync(CancellationToken cancellationToken)
 	{
-		var upstream = await RunAsync(cancellationToken, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}");
+		var upstream = await RunAsync(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cancellationToken);
 		if (upstream.ExitCode != 0)
 			return true;
 
-		var result = await RunAsync(cancellationToken, "rev-list", "--count", "@{u}..HEAD");
+		var result = await RunAsync(["rev-list", "--count", "@{u}..HEAD"], cancellationToken);
 		EnsureSuccess(result, "rev-list --count @{u}..HEAD");
 		return result.StandardOutput.Trim() != "0";
 	}
 
 	public async Task<bool> BranchExistsAsync(string branchName, CancellationToken cancellationToken)
 	{
-		var local = await RunAsync(cancellationToken, "show-ref", "--verify", "--quiet", $"refs/heads/{branchName}");
+		var local = await RunAsync(["show-ref", "--verify", "--quiet", $"refs/heads/{branchName}"], cancellationToken);
 		if (local.ExitCode == 0)
 			return true;
 
-		var remote = await RunAsync(cancellationToken, "ls-remote", "--exit-code", "--heads", "origin", branchName);
+		var remote = await RunAsync(["ls-remote", "--exit-code", "--heads", "origin", branchName], cancellationToken);
 		return remote.ExitCode == 0;
 	}
 
 	public async Task<bool> HasChangesAsync(CancellationToken cancellationToken)
 	{
-		var result = await RunAsync(cancellationToken, "status", "--porcelain", "--untracked-files=normal");
+		var result = await RunAsync(["status", "--porcelain", "--untracked-files=normal"], cancellationToken);
 		EnsureSuccess(result, "status --porcelain --untracked-files=normal");
 		return !string.IsNullOrWhiteSpace(result.StandardOutput);
 	}
 
 	public async Task CommitAllAsync(string message, CancellationToken cancellationToken)
 	{
-		EnsureSuccess(await RunAsync(cancellationToken, "add", "-A"), "add -A");
-		EnsureSuccess(await RunAsync(cancellationToken, "commit", "-m", message), $"commit -m {message}");
+		EnsureSuccess(await RunAsync(["add", "-A"], cancellationToken), "add -A");
+		EnsureSuccess(await RunAsync(["commit", "-m", message], cancellationToken), $"commit -m {message}");
 	}
 
 	public async Task ResetHardAsync(string commit, CancellationToken cancellationToken)
 	{
-		EnsureSuccess(await RunAsync(cancellationToken, "reset", "--hard", commit), $"reset --hard {commit}");
-		EnsureSuccess(await RunAsync(cancellationToken, "clean", "-fd"), "clean -fd");
+		EnsureSuccess(await RunAsync(["reset", "--hard", commit], cancellationToken), $"reset --hard {commit}");
+		EnsureSuccess(await RunAsync(["clean", "-fd"], cancellationToken), "clean -fd");
 	}
 
 	public async Task SwitchToNewBranchAsync(string branchName, CancellationToken cancellationToken)
 	{
-		EnsureSuccess(await RunAsync(cancellationToken, "switch", "-c", branchName), $"switch -c {branchName}");
+		EnsureSuccess(await RunAsync(["switch", "-c", branchName], cancellationToken), $"switch -c {branchName}");
 	}
 
 	public async Task SwitchToExistingBranchAsync(string branchName, CancellationToken cancellationToken)
 	{
-		var local = await RunAsync(cancellationToken, "show-ref", "--verify", "--quiet", $"refs/heads/{branchName}");
+		var local = await RunAsync(["show-ref", "--verify", "--quiet", $"refs/heads/{branchName}"], cancellationToken);
 		if (local.ExitCode == 0)
 		{
-			EnsureSuccess(await RunAsync(cancellationToken, "switch", branchName), $"switch {branchName}");
+			EnsureSuccess(await RunAsync(["switch", branchName], cancellationToken), $"switch {branchName}");
 			return;
 		}
 
-		EnsureSuccess(await RunAsync(cancellationToken, "switch", "-c", branchName, "--track", $"origin/{branchName}"), $"switch -c {branchName} --track origin/{branchName}");
+		EnsureSuccess(await RunAsync(["switch", "-c", branchName, "--track", $"origin/{branchName}"], cancellationToken), $"switch -c {branchName} --track origin/{branchName}");
 	}
 
 	public async Task PushBranchAsync(string branchName, CancellationToken cancellationToken)
 	{
-		EnsureSuccess(await RunAsync(cancellationToken, "push", "-u", "origin", branchName), $"push -u origin {branchName}");
+		EnsureSuccess(await RunAsync(["push", "-u", "origin", branchName], cancellationToken), $"push -u origin {branchName}");
 	}
 
-	public static async Task<GitCommandResult> RunGitAsync(string workingDirectory, CancellationToken cancellationToken, params string[] arguments)
+	public static async Task<GitCommandResult> RunGitAsync(string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
 	{
 		var startInfo = new ProcessStartInfo("git")
 		{

@@ -181,7 +181,7 @@ internal sealed class OpenPrTests
 
 	private sealed class FakeGitHubCli
 	{
-		public ExternalCommandRunner Runner => new(RunAsync);
+		public ExternalCommandRunner Runner => RunAsync;
 
 		public int PrCreateExitCode { get; set; }
 
@@ -197,16 +197,17 @@ internal sealed class OpenPrTests
 
 		public string[] LastInvocation(string command, string subcommand) => Invocations.Last(x => x.Length >= 2 && x[0] == command && x[1] == subcommand);
 
-		public Task<ExternalCommandResult> RunAsync(string fileName, string workingDirectory, string[] arguments, CancellationToken cancellationToken)
+		public Task<ExternalCommandResult> RunAsync(ExternalCommandRequest request, CancellationToken cancellationToken)
 		{
 			_ = cancellationToken;
-			Assert.That(fileName, Is.EqualTo("gh"));
-			Assert.That(workingDirectory, Is.Not.Empty);
+			Assert.That(request.FileName, Is.EqualTo("gh"));
+			Assert.That(request.WorkingDirectory, Is.Not.Empty);
+			var arguments = request.Arguments;
 			Invocations.Add([.. arguments]);
 
 			if (arguments is ["pr", "list", ..])
 			{
-				for (var index = 0; index < arguments.Length - 1; index++)
+				for (var index = 0; index < arguments.Count - 1; index++)
 				{
 					if (arguments[index] == "--head")
 						ListHeadsQueried.Add(arguments[index + 1]);

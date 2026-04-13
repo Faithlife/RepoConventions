@@ -4,8 +4,6 @@ namespace RepoConventions.Tests;
 
 internal sealed class ConventionExecutionTests
 {
-	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
-
 	[Test]
 	public async Task CommitModeFailsWhenConfigIsMissing()
 	{
@@ -25,13 +23,13 @@ internal sealed class ConventionExecutionTests
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile(".github/conventions.yml", """
-conventions:
-  - path: ./conventions/add-file
-""");
+			conventions:
+			- path: ./conventions/add-file
+			""");
 		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
-param([string] $configPath)
-Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
-""");
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
@@ -49,18 +47,18 @@ Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile(".github/conventions.yml", """
-conventions:
-  - path: ./conventions/write-settings
-    settings:
-      greeting: hello
-      enabled: true
-""");
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    greeting: hello
+			    enabled: true
+			""");
 		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
-param([string] $configPath)
-$config = Get-Content -Raw $configPath | ConvertFrom-Json
-$output = @{ hasSettings = ($null -ne $config.settings); propertyCount = ($config.PSObject.Properties | Measure-Object).Count; greeting = $config.settings.greeting; enabled = $config.settings.enabled }
-$output | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $PWD 'settings.json')
-""");
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$output = @{ hasSettings = ($null -ne $config.settings); propertyCount = ($config.PSObject.Properties | Measure-Object).Count; greeting = $config.settings.greeting; enabled = $config.settings.enabled }
+			$output | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
@@ -79,22 +77,22 @@ $output | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $PWD 'settings
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile(".github/conventions.yml", """
-conventions:
-  - path: ./conventions/parent
-""");
+			conventions:
+			- path: ./conventions/parent
+			""");
 		repo.WriteFile(".github/conventions/parent/convention.yml", """
-conventions:
-  - path: ../child
-""");
+			conventions:
+			- path: ../child
+			""");
 		repo.WriteFile(".github/conventions/child/convention.ps1", """
-param([string] $configPath)
-Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
-""");
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
 		repo.WriteFile(".github/conventions/parent/convention.ps1", """
-param([string] $configPath)
-if (-not (Test-Path (Join-Path $PWD 'child.txt'))) { throw 'child missing' }
-Set-Content -Path (Join-Path $PWD 'parent.txt') -Value 'parent'
-""");
+			param([string] $configPath)
+			if (-not (Test-Path (Join-Path $PWD 'child.txt'))) { throw 'child missing' }
+			Set-Content -Path (Join-Path $PWD 'parent.txt') -Value 'parent'
+			""");
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
@@ -113,19 +111,19 @@ Set-Content -Path (Join-Path $PWD 'parent.txt') -Value 'parent'
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile(".github/conventions.yml", """
-conventions:
-  - path: ./conventions/good
-  - path: ./conventions/bad
-""");
+			conventions:
+			- path: ./conventions/good
+			- path: ./conventions/bad
+			""");
 		repo.WriteFile(".github/conventions/good/convention.ps1", """
-param([string] $configPath)
-Set-Content -Path (Join-Path $PWD 'good.txt') -Value 'good'
-""");
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'good.txt') -Value 'good'
+			""");
 		repo.WriteFile(".github/conventions/bad/convention.ps1", """
-param([string] $configPath)
-Set-Content -Path (Join-Path $PWD 'bad.txt') -Value 'bad'
-exit 1
-""");
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'bad.txt') -Value 'bad'
+			exit 1
+			""");
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
@@ -154,4 +152,6 @@ exit 1
 			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
 		}
 	}
+
+	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
 }

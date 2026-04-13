@@ -6,13 +6,6 @@ namespace RepoConventions;
 
 internal sealed class ConventionRunner
 {
-	private readonly CancellationToken m_cancellationToken;
-	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);
-	private readonly TextWriter m_standardError;
-	private readonly TextWriter m_standardOutput;
-	private readonly string m_targetRepositoryRoot;
-	private readonly GitClient m_targetGitClient;
-
 	public ConventionRunner(string targetRepositoryRoot, GitClient targetGitClient, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
 	{
 		m_targetRepositoryRoot = targetRepositoryRoot;
@@ -342,4 +335,11 @@ internal sealed class ConventionRunner
 			return new RemoteConventionPath(owner, repository, subPath, reference);
 		}
 	}
+
+	private readonly CancellationToken m_cancellationToken;
+	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);
+	private readonly TextWriter m_standardError;
+	private readonly TextWriter m_standardOutput;
+	private readonly string m_targetRepositoryRoot;
+	private readonly GitClient m_targetGitClient;
 }

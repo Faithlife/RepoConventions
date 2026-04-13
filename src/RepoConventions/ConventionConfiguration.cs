@@ -1,6 +1,7 @@
-using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
-using YamlDotNet.RepresentationModel;
+using System.Text.Json.Serialization;
+using YamlDotNet.Serialization;
 
 namespace RepoConventions;
 
@@ -8,57 +9,40 @@ internal static class ConventionConfiguration
 {
 	public static IReadOnlyList<ConventionReference> Load(string path)
 	{
-		using var reader = File.OpenText(path);
-		var yaml = new YamlStream();
-		yaml.Load(reader);
+		var yaml = File.ReadAllText(path);
+		var json = s_yamlSerializer.Serialize(s_yamlDeserializer.Deserialize(yaml));
+		var configuration = JsonSerializer.Deserialize<ConfigurationFile>(json);
 
-		if (yaml.Documents.Count == 0 || yaml.Documents[0].RootNode is not YamlMappingNode mapping)
-			throw new InvalidOperationException($"Configuration file '{path}' must contain a YAML mapping.");
-
-		if (!mapping.Children.TryGetValue(new YamlScalarNode("conventions"), out var conventionsNode) || conventionsNode is not YamlSequenceNode sequence)
+		if (configuration?.Conventions is null)
 			throw new InvalidOperationException($"Configuration file '{path}' must contain a 'conventions' sequence.");
 
 		var references = new List<ConventionReference>();
-		foreach (var child in sequence.Children)
+		foreach (var convention in configuration.Conventions)
 		{
-			if (child is not YamlMappingNode conventionMapping)
-				throw new InvalidOperationException($"Convention entries in '{path}' must be mappings.");
-
-			if (!conventionMapping.Children.TryGetValue(new YamlScalarNode("path"), out var pathNode) || pathNode is not YamlScalarNode pathScalar || string.IsNullOrWhiteSpace(pathScalar.Value))
+			if (string.IsNullOrWhiteSpace(convention.Path))
 				throw new InvalidOperationException($"Convention entries in '{path}' must include a non-empty 'path'.");
 
-			conventionMapping.Children.TryGetValue(new YamlScalarNode("settings"), out var settingsNode);
-			references.Add(new ConventionReference(pathScalar.Value!, settingsNode is null ? null : ConvertYamlNode(settingsNode)));
+			references.Add(new ConventionReference(convention.Path, convention.Settings));
 		}
 
 		return references;
 	}
 
-	private static JsonNode? ConvertYamlNode(YamlNode node) =>
-		node switch
-		{
-			YamlScalarNode scalar => ConvertScalar(scalar),
-			YamlSequenceNode sequence => new JsonArray(sequence.Children.Select(ConvertYamlNode).ToArray()),
-			YamlMappingNode mapping => new JsonObject(mapping.Children.ToDictionary(
-				entry => ((YamlScalarNode) entry.Key).Value ?? "",
-				entry => ConvertYamlNode(entry.Value))),
-			_ => throw new InvalidOperationException("Unsupported YAML node type."),
-		};
-
-	private static JsonValue? ConvertScalar(YamlScalarNode scalar)
+	private sealed class ConfigurationFile
 	{
-		if (scalar.Value is null)
-			return null;
-
-		if (bool.TryParse(scalar.Value, out var boolean))
-			return JsonValue.Create(boolean);
-
-		if (long.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer))
-			return JsonValue.Create(integer);
-
-		if (double.TryParse(scalar.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var floatingPoint))
-			return JsonValue.Create(floatingPoint);
-
-		return JsonValue.Create(scalar.Value);
+		[JsonPropertyName("conventions")]
+		public List<ConventionRecord>? Conventions { get; init; }
 	}
+
+	private sealed class ConventionRecord
+	{
+		[JsonPropertyName("path")]
+		public string Path { get; init; } = "";
+
+		[JsonPropertyName("settings")]
+		public JsonNode? Settings { get; init; }
+	}
+
+	private static readonly ISerializer s_yamlSerializer = new SerializerBuilder().JsonCompatible().Build();
+	private static readonly IDeserializer s_yamlDeserializer = new DeserializerBuilder().Build();
 }

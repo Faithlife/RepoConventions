@@ -10,7 +10,7 @@ internal sealed class ConventionRunnerSettings
 
 	public required TextWriter StandardError { get; init; }
 
-	public RemoteRepositoryUrlResolver? RemoteRepositoryUrlResolver { get; init; }
+	public Func<RemoteRepositoryUrlRequest, string>? RemoteRepositoryUrlResolver { get; init; }
 
-	public ExternalCommandRunner? ExternalCommandRunner { get; init; }
+	public Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? ExternalCommandRunner { get; init; }
 }

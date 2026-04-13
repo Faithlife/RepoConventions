@@ -146,6 +146,13 @@ internal sealed class ConventionRunner
 
 	private async Task<ResolvedConvention> ResolveConventionAsync(string conventionPath, string containingDirectory, CancellationToken cancellationToken)
 	{
+		if (conventionPath.StartsWith('/'))
+		{
+			var directoryPath = Path.Combine(m_settings.TargetRepositoryRoot, conventionPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+			var name = new DirectoryInfo(directoryPath).Name;
+			return new ResolvedConvention(directoryPath, name, directoryPath);
+		}
+
 		if (conventionPath.StartsWith("./", StringComparison.Ordinal) || conventionPath.StartsWith("../", StringComparison.Ordinal))
 		{
 			var directoryPath = Path.GetFullPath(Path.Combine(containingDirectory, conventionPath));

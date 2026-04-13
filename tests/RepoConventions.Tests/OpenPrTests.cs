@@ -168,7 +168,7 @@ internal sealed class OpenPrTests
 
 	private static class CliInvocation
 	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, RemoteRepositoryUrlResolver? remoteRepositoryUrlResolver = null, ExternalCommandRunner? externalCommandRunner = null)
+		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver = null, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner = null)
 		{
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
@@ -181,7 +181,7 @@ internal sealed class OpenPrTests
 
 	private sealed class FakeGitHubCli
 	{
-		public ExternalCommandRunner Runner => RunAsync;
+		public Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>> Runner => RunAsync;
 
 		public int PrCreateExitCode { get; set; }
 

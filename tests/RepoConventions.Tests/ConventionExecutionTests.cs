@@ -73,6 +73,30 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeSupportsRepositoryRootRelativeConventionPaths()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: /conventions/root-relative
+			""");
+		repo.WriteFile("conventions/root-relative/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'root-relative.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("root-relative.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention root-relative."));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesCompositeConventionBeforeItsScript()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -158,10 +182,10 @@ internal sealed class ConventionExecutionTests
 		var result = await CliInvocation.InvokeAsync(
 			["--commit"],
 			repo.RootPath,
-			new RemoteRepositoryUrlResolver(request =>
+			request =>
 				request is { Owner: "local-test", Repository: "remote-conventions" }
 					? remoteRepo.GetRepositoryUri()
-					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.")));
+					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}."));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -197,10 +221,10 @@ internal sealed class ConventionExecutionTests
 		var result = await CliInvocation.InvokeAsync(
 			["--commit"],
 			repo.RootPath,
-			new RemoteRepositoryUrlResolver(request =>
+			request =>
 				request is { Owner: "local-test", Repository: "remote-conventions" }
 					? remoteRepo.GetRepositoryUri()
-					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.")));
+					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}."));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -324,7 +348,7 @@ internal sealed class ConventionExecutionTests
 
 	private static class CliInvocation
 	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, RemoteRepositoryUrlResolver? remoteRepositoryUrlResolver = null)
+		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver = null)
 		{
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
@@ -335,7 +359,7 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
-	private static RemoteRepositoryUrlResolver LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
+	private static Func<RemoteRepositoryUrlRequest, string> LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
 		request =>
 			request is { Owner: "local-test", Repository: "remote-conventions" }
 				? remoteRepo.GetRepositoryUri()

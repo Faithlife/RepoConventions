@@ -52,11 +52,28 @@ This document captures the current implementation target for the CLI.
 ## Remaining Open Questions
 
 - Rollback after failure: if a later convention fails after earlier conventions already committed changes, should the CLI leave earlier successful commits in place, reset them automatically, or stop and require manual cleanup?
+
+It should automatically clean up after the failed convention without reverting commits from previous conventions.
+
 - PR branch strategy: should `--open-pr` use one reusable branch for all convention updates, one branch per convention, or one branch per run? What should the exact branch name be?
+
+One branch named `repo-conventions`.
+
 - PR metadata: what should the default PR title and body be?
+
+Restate the question with a proposal.
+
 - Existing PR behavior: if a matching branch exists but the PR is closed, should the CLI reopen it, create a new PR from the same branch, or create a fresh branch?
+
+Restate the question with a proposal.
+
 - Console output outside script passthrough: should the CLI print a short summary per convention, a final summary only, or both?
+
+A short summary per convention
+
 - Machine-readable output: do we want a structured output mode later, or should plain console output remain the only mode?
+
+Restate the question with an explanation as to why we would want structured output mode later.
 
 ## Future Ideas
 

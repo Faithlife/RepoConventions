@@ -30,7 +30,7 @@ A local convention path starts with `./` or `../`. It is relative to the directo
 
 ### Convention definitions
 
-A convention directory contains a convention definition, which consists of a convention configuration file or a convention script file, as well as any optional supporting files, such as a `README.md`, or files used by the convention script.
+A convention directory contains a convention definition, which may include a convention configuration file, a convention script file, or both, as well as any optional supporting files, such as a `README.md`, or files used by the convention script.
 
 #### Composite conventions
 
@@ -46,8 +46,8 @@ The convention script should check the repository to see if it adheres to the co
 
 The `repo-conventions` CLI can be installed as a .NET tool or run with `dnx`.
 
-When run with no arguments, the CLI validates the conventions configuration file for the target repository and ensures that the target repository is ready for fixes, i.e. it has no staged changes, no unstaged tracked changes, and no untracked non-ignored files.
+When run with no arguments, the CLI shows usage.
 
-When run with a `--commit` or `--open-pr` argument, each executable convention is run in turn.
+When run with a `--commit` or `--open-pr` argument, each convention is applied in turn.
 
-With `--open-pr`, the CLI then opens a PR if the executable conventions resulted in any commits.
+With `--open-pr`, the CLI then opens a PR if applying the conventions resulted in any commits.

@@ -1,67 +1,68 @@
 # RepoConventions Tech Spec
 
-This document tracks the implementation details that still need decisions.
+This document captures the current implementation target for the CLI.
 
-## Open Questions
+## Scope
 
-- [ ] How does the CLI choose the target repository and conventions file? Current directory only, or explicit path arguments?
+- The CLI operates on the current directory only.
+- The conventions configuration file is `.github/conventions.yml`.
+- Support local and remote convention paths.
+- Support composite conventions, executable conventions, or both in the same convention directory.
 
-Current directory only. We can add arguments in the future if we need them.
+## CLI Surface
 
-- [ ] What is the exact command surface? Are `--commit` and `--open-pr` mutually exclusive? Do we also need `--help`, `--version`, `--verbose`, or `--dry-run`?
+- With no arguments, show usage.
+- `--commit` applies conventions and creates commits as needed.
+- `--open-pr` implies `--commit`, then opens or updates a pull request.
+- `--help` and `--version` should be supported.
+- Do not add `--verbose` or `--dry-run` yet.
 
-Open PR implies commit. Help and version sound good. No verbose or dry run just yet.
+## Convention Resolution
 
-- [ ] What does no-argument validation include: YAML shape only, or also recursive convention resolution, existence checks, and cycle detection?
+- Resolve conventions in declaration order.
+- A remote convention path uses the `owner/repo/path@ref` form.
+- A local convention path starts with `./` or `../` and is resolved relative to the containing configuration file.
+- Fetch remote conventions with `git clone`.
+- Nested composite settings syntax should follow the GitHub Actions style eventually, but for now composite convention settings are ignored.
+- If both `convention.yml` and `convention.ps1` exist, apply the composite convention first, then run the script.
+- If a cycle is detected, skip the convention entry that would create the cycle and continue.
 
-I've changed my mind on no argument validation. Let's just show usage if there are no arguments for now.
+## Executable Conventions
 
-- [ ] What exit codes should distinguish invalid config, dirty repo, convention failure, auth/network failure, and PR failure?
+- Run `convention.ps1` with `pwsh`.
+- Run the script from the root of the target Git repository.
+- Pass one argument: the path to a JSON file.
+- The JSON payload contains only `settings`.
+- Convention script output should flow directly to the caller.
+- Under GitHub Actions, each convention run should be wrapped in its own log group.
 
-Different failure codes don't seem necessary to me. For now.
+## Git Behavior
 
-- [ ] When conventions leave file changes, does the CLI auto-commit after each convention or once at the end?
+- `--commit` and `--open-pr` create commits after each convention that leaves changes behind.
+- Auto-created commit messages use `Apply convention <name>.`
+- `<name>` is the convention directory name, or the repository name when the convention is at the repository root.
+- Do not introduce specialized exit codes yet.
 
-After each convention.
+## Pull Requests
 
-- [ ] What commit message format should auto-created commits use?
+- Use `gh` to create pull requests.
+- Assume `git` and `gh` are already authenticated correctly.
+- If an open PR already exists for the convention branch, apply the conventions to that PR's code instead of creating a new PR.
 
-`Apply convention <name>.`
+## Remaining Open Questions
 
-The name is the name of the convention directory or of the repository if the convention is at the root.
+- Rollback after failure: if a later convention fails after earlier conventions already committed changes, should the CLI leave earlier successful commits in place, reset them automatically, or stop and require manual cleanup?
+- PR branch strategy: should `--open-pr` use one reusable branch for all convention updates, one branch per convention, or one branch per run? What should the exact branch name be?
+- PR metadata: what should the default PR title and body be?
+- Existing PR behavior: if a matching branch exists but the PR is closed, should the CLI reopen it, create a new PR from the same branch, or create a fresh branch?
+- Console output outside script passthrough: should the CLI print a short summary per convention, a final summary only, or both?
+- Machine-readable output: do we want a structured output mode later, or should plain console output remain the only mode?
 
-- [ ] If a convention fails after earlier changes or commits, what rollback behavior is required?
+## Future Ideas
 
-Please restate this open question with my options.
-
-- [ ] Which PowerShell host should run `convention.ps1`: `pwsh`, Windows PowerShell, or either?
-
-pwsh
-
-- [ ] Should the JSON input for `convention.ps1` contain anything besides `settings`?
-
-no
-
-- [ ] How are composite conventions resolved: declaration order, nested settings behavior, cycle handling, and validation when both `convention.yml` and `convention.ps1` exist?
-
-Declaration order. Nested settings will use syntax like GitHub Actions, but for now, composite convention settings are ignored. When a cycle is detected, just skip over the convention entry that would cause it. Let's allow conventions to have both and apply the composite convention before running the script.
-
-- [ ] How are remote conventions fetched: git clone, archive download, or GitHub API? Do we need caching?
-
-Git clone is fine.
-
-- [ ] How is authentication provided for private convention repos and for PR creation?
-
-Use gh for PR creation. Assume git and gh are both already authenticated as desired.
-
-- [ ] What branch naming, push target, and PR title/body should `--open-pr` use?
-
-Restate the question with one or more proposals.
-
-- [ ] What should happen if a matching branch or open PR already exists?
-
-If an open PR already exists, it should apply the conventions to the code in that PR.
-
-- [ ] What console output is required for progress, no-op runs, and failures? Do we need a machine-readable mode?
-
-Convention script output should not be captured, i.e. it should just flow to the caler. When running under GitHub Actions, display each convention run in its own group. Aside from that, restate the question with one or more proposals.
+- Add an explicit repository path argument.
+- Add config path override support.
+- Validate conventions without applying them.
+- Support caching for remote convention fetches.
+- Support richer settings propagation for composite conventions.
+- Add more structured failure and diagnostics reporting.

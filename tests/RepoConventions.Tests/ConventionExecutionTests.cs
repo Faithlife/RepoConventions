@@ -158,10 +158,10 @@ internal sealed class ConventionExecutionTests
 		var result = await CliInvocation.InvokeAsync(
 			["--commit"],
 			repo.RootPath,
-			(owner, repository) =>
+			new RemoteRepositoryUrlResolver((owner, repository) =>
 				owner == "local-test" && repository == "remote-conventions"
 					? remoteRepo.GetRepositoryUri()
-					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
+					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}.")));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -197,10 +197,10 @@ internal sealed class ConventionExecutionTests
 		var result = await CliInvocation.InvokeAsync(
 			["--commit"],
 			repo.RootPath,
-			(owner, repository) =>
+			new RemoteRepositoryUrlResolver((owner, repository) =>
 				owner == "local-test" && repository == "remote-conventions"
 					? remoteRepo.GetRepositoryUri()
-					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
+					: throw new AssertionException($"Unexpected remote repository {owner}/{repository}.")));
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -324,7 +324,7 @@ internal sealed class ConventionExecutionTests
 
 	private static class CliInvocation
 	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<string, string, string>? remoteRepositoryUrlResolver = null)
+		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, RemoteRepositoryUrlResolver? remoteRepositoryUrlResolver = null)
 		{
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
@@ -335,11 +335,11 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
-	private static Func<string, string, string> LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
-		(owner, repository) =>
+	private static RemoteRepositoryUrlResolver LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
+		new((owner, repository) =>
 			owner == "local-test" && repository == "remote-conventions"
 				? remoteRepo.GetRepositoryUri()
-				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}.");
+				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}."));
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
 }

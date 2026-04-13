@@ -25,7 +25,7 @@ internal sealed class OpenPrTests
 	public async Task OpenPrModeFailsWhenRepositoryHasUnpushedCommits()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryBareGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.AddRemoteAsync("origin", origin.RootPath);
@@ -46,7 +46,7 @@ internal sealed class OpenPrTests
 	public async Task OpenPrModeCreatesConventionBranchPushesItAndCreatesPullRequest()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryBareGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
@@ -60,7 +60,7 @@ internal sealed class OpenPrTests
 		await repo.AddRemoteAsync("origin", origin.RootPath);
 		await repo.PushAsync("origin", "main", setUpstream: true);
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.RunAsync);
+		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -83,14 +83,14 @@ internal sealed class OpenPrTests
 	public async Task OpenPrModeDoesNotPushOrCreatePullRequestWhenNoChangesAreMade()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryBareGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
 		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.AddRemoteAsync("origin", origin.RootPath);
 		await repo.PushAsync("origin", "main", setUpstream: true);
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.RunAsync);
+		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -106,7 +106,7 @@ internal sealed class OpenPrTests
 	public async Task OpenPrModeChoosesNextAvailableConventionBranchAcrossLocalAndRemoteBranches()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryBareGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
 		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
 		await repo.CommitAllAsync("Initial commit.");
@@ -118,7 +118,7 @@ internal sealed class OpenPrTests
 		await repo.SwitchToBranchAsync("main");
 		await repo.DeleteBranchAsync("repo-conventions-2");
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.RunAsync);
+		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -132,7 +132,7 @@ internal sealed class OpenPrTests
 	public async Task OpenPrModeUpdatesExistingPullRequestBranchWithoutCreatingAnotherPullRequest()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryBareGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
 		fakeGh.PrListOutput = /*lang=json,strict*/ "[{\"number\":1}]";
 		repo.WriteFile(".github/conventions.yml", """
@@ -151,7 +151,7 @@ internal sealed class OpenPrTests
 		await repo.SwitchToBranchAsync("main");
 		await repo.DeleteBranchAsync("repo-conventions");
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.RunAsync);
+		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -168,7 +168,7 @@ internal sealed class OpenPrTests
 
 	private static class CliInvocation
 	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<string, string, string>? remoteRepositoryUrlResolver = null, Func<string, string, string[], Task<(int ExitCode, string StandardOutput, string StandardError)>>? externalCommandRunner = null)
+		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, RemoteRepositoryUrlResolver? remoteRepositoryUrlResolver = null, ExternalCommandRunner? externalCommandRunner = null)
 		{
 			var standardOutput = new StringWriter();
 			var standardError = new StringWriter();
@@ -181,6 +181,8 @@ internal sealed class OpenPrTests
 
 	private sealed class FakeGitHubCli
 	{
+		public ExternalCommandRunner Runner => new(RunAsync);
+
 		public int PrCreateExitCode { get; set; }
 
 		public string PrCreateOutput { get; set; } = "https://example.invalid/pr/1";
@@ -195,8 +197,9 @@ internal sealed class OpenPrTests
 
 		public string[] LastInvocation(string command, string subcommand) => Invocations.Last(x => x.Length >= 2 && x[0] == command && x[1] == subcommand);
 
-		public Task<(int ExitCode, string StandardOutput, string StandardError)> RunAsync(string fileName, string workingDirectory, string[] arguments)
+		public Task<ExternalCommandResult> RunAsync(string fileName, string workingDirectory, string[] arguments, CancellationToken cancellationToken)
 		{
+			_ = cancellationToken;
 			Assert.That(fileName, Is.EqualTo("gh"));
 			Assert.That(workingDirectory, Is.Not.Empty);
 			Invocations.Add([.. arguments]);
@@ -209,13 +212,13 @@ internal sealed class OpenPrTests
 						ListHeadsQueried.Add(arguments[index + 1]);
 				}
 
-				return Task.FromResult((0, PrListOutput, ""));
+				return Task.FromResult(new ExternalCommandResult(0, PrListOutput, ""));
 			}
 
 			if (arguments is ["pr", "create", ..])
-				return Task.FromResult((PrCreateExitCode, PrCreateOutput, PrCreateExitCode == 0 ? "" : "create failed"));
+				return Task.FromResult(new ExternalCommandResult(PrCreateExitCode, PrCreateOutput, PrCreateExitCode == 0 ? "" : "create failed"));
 
-			return Task.FromResult((1, "", $"Unexpected gh arguments: {string.Join(' ', arguments)}"));
+			return Task.FromResult(new ExternalCommandResult(1, "", $"Unexpected gh arguments: {string.Join(' ', arguments)}"));
 		}
 	}
 }

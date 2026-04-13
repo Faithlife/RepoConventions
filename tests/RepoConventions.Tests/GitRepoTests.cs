@@ -8,6 +8,8 @@ internal sealed class GitRepoTests
 	public async Task CommitModeSucceedsFromCleanRepositoryRoot()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
 

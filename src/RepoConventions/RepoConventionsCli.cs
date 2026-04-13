@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Diagnostics;
 
 namespace RepoConventions;
 
@@ -42,7 +41,16 @@ internal static class RepoConventionsCli
 			return 1;
 		}
 
-		return 0;
+		var configPath = Path.Combine(workingDirectory, ".github", "conventions.yml");
+		if (!File.Exists(configPath))
+		{
+			await standardError.WriteLineAsync("The conventions configuration file '.github/conventions.yml' was not found.");
+			return 1;
+		}
+
+		var gitClient = new GitClient(workingDirectory, cancellationToken);
+		var conventionRunner = new ConventionRunner(workingDirectory, gitClient, standardOutput, standardError, cancellationToken);
+		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption));
 	}
 
 	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError) =>
@@ -72,7 +80,7 @@ internal static class RepoConventionsCli
 	{
 		public static async Task<bool> IsRepositoryRootAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await RunGitAsync(workingDirectory, cancellationToken, "rev-parse", "--show-toplevel");
+			var result = await GitClient.RunGitAsync(workingDirectory, cancellationToken, "rev-parse", "--show-toplevel");
 			if (result.ExitCode != 0)
 				return false;
 
@@ -82,34 +90,8 @@ internal static class RepoConventionsCli
 
 		public static async Task<bool> IsCleanAsync(string workingDirectory, CancellationToken cancellationToken)
 		{
-			var result = await RunGitAsync(workingDirectory, cancellationToken, "status", "--porcelain", "--untracked-files=normal");
+			var result = await GitClient.RunGitAsync(workingDirectory, cancellationToken, "status", "--porcelain", "--untracked-files=normal");
 			return result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardOutput);
 		}
-
-		private static async Task<GitResult> RunGitAsync(string workingDirectory, CancellationToken cancellationToken, params string[] arguments)
-		{
-			var startInfo = new ProcessStartInfo("git")
-			{
-				WorkingDirectory = workingDirectory,
-				RedirectStandardError = true,
-				RedirectStandardOutput = true,
-				UseShellExecute = false,
-			};
-
-			foreach (var argument in arguments)
-				startInfo.ArgumentList.Add(argument);
-
-			using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start git.");
-			var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-			var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-			await process.WaitForExitAsync(cancellationToken);
-
-			return new GitResult(
-				process.ExitCode,
-				await standardOutputTask,
-				await standardErrorTask);
-		}
-
-		private sealed record GitResult(int ExitCode, string StandardOutput, string StandardError);
 	}
 }

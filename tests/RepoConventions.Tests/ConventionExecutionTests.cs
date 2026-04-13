@@ -210,6 +210,116 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
+	[Test]
+	public async Task CommitModeAppliesRemoteCompositeConventionBeforeItsScript()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			""");
+		remoteRepo.WriteFile("conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'remote-child.txt') -Value 'child'
+			""");
+		remoteRepo.WriteFile("conventions/parent/convention.ps1", """
+			param([string] $configPath)
+			if (-not (Test-Path (Join-Path $PWD 'remote-child.txt'))) { throw 'child missing' }
+			Set-Content -Path (Join-Path $PWD 'remote-parent.txt') -Value 'parent'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/parent@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["--commit"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("remote-child.txt"), Is.True);
+			Assert.That(repo.FileExists("remote-parent.txt"), Is.True);
+			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeUsesRepositoryNameWhenRemoteConventionIsAtRepositoryRoot()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'remote-root.txt') -Value 'root'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["--commit"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("remote-root.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention remote-conventions."));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeSkipsCycleDetectedAcrossRemoteReferences()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/cycle/convention.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/cycle@main
+			""");
+		remoteRepo.WriteFile("conventions/cycle/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'cycle.txt') -Value 'cycle'
+			""");
+		remoteRepo.WriteFile("conventions/after/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'after.txt') -Value 'after'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/cycle@main
+			- path: local-test/remote-conventions/conventions/after@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["--commit"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("cycle.txt"), Is.True);
+			Assert.That(repo.FileExists("after.txt"), Is.True);
+			Assert.That(result.StandardOutput, Does.Contain("skipped (cycle detected)"));
+		}
+	}
+
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
 
 	private static class CliInvocation
@@ -224,6 +334,12 @@ internal sealed class ConventionExecutionTests
 			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
 		}
 	}
+
+	private static Func<string, string, string> LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
+		(owner, repository) =>
+			owner == "local-test" && repository == "remote-conventions"
+				? remoteRepo.GetRepositoryUri()
+				: throw new AssertionException($"Unexpected remote repository {owner}/{repository}.");
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
 }

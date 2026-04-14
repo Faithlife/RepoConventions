@@ -259,12 +259,19 @@ internal sealed class ConventionRunner
 			return 0;
 
 		var body = BuildPullRequestBody(appliedConventions);
+		await m_settings.StandardOutput.WriteLineAsync($"Opening pull request from {pullRequest.BranchName} to {pullRequest.StartingBranch}...");
 		var createResult = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "create", "--base", pullRequest.StartingBranch, "--head", pullRequest.BranchName, "--title", "Apply repository conventions", "--body", body], cancellationToken);
 		if (createResult.ExitCode != 0)
 		{
 			await m_settings.StandardError.WriteLineAsync($"Failed to create pull request: {createResult.StandardError}{createResult.StandardOutput}");
 			return 1;
 		}
+
+		var pullRequestUrl = ExtractGitHubPullRequestUrl(createResult.StandardOutput, createResult.StandardError);
+		if (pullRequestUrl is not null)
+			await m_settings.StandardOutput.WriteLineAsync($"Opened pull request: {pullRequestUrl}");
+		else
+			await m_settings.StandardOutput.WriteLineAsync("Opened pull request.");
 
 		return 0;
 	}
@@ -289,6 +296,21 @@ internal sealed class ConventionRunner
 	}
 
 	private static bool IsGitHubActions() => string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
+
+	private static string? ExtractGitHubPullRequestUrl(string standardOutput, string standardError)
+	{
+		foreach (var token in string.Concat(standardOutput, " ", standardError).Split((char[]?) null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+		{
+			if (Uri.TryCreate(token, UriKind.Absolute, out var uri) &&
+				string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+				string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+			{
+				return uri.AbsoluteUri;
+			}
+		}
+
+		return null;
+	}
 
 	private async Task<ExternalCommandResult> RunExternalCommandAsync(string fileName, string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
 	{

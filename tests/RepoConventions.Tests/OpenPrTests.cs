@@ -66,6 +66,8 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Opening pull request from repo-conventions to main..."));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1"));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
@@ -185,7 +187,7 @@ internal sealed class OpenPrTests
 
 		public int PrCreateExitCode { get; set; }
 
-		public string PrCreateOutput { get; set; } = "https://example.invalid/pr/1";
+		public string PrCreateOutput { get; set; } = "https://github.com/example/repo/pull/1";
 
 		public string PrListOutput { get; set; } = "[]";
 

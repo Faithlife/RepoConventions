@@ -77,7 +77,8 @@ internal sealed class OpenPrTests
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("main"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--head"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("repo-conventions"));
-			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("Apply repository conventions"));
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("Apply repository conventions."));
+			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[Conventions](https://github.com/example/repo/blob/repo-conventions/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[repo-conventions](https://github.com/Faithlife/RepoConventions)"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("add-file"));

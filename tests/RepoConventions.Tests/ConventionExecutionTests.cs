@@ -97,6 +97,27 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeFailsWithMissingConventionDirectoryMessage()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/use-slnx
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("directory"));
+			Assert.That(result.StandardError, Does.Contain("./conventions/use-slnx"));
+			Assert.That(result.StandardError, Does.Not.Contain("did not contain convention.yml or convention.ps1"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesCompositeConventionBeforeItsScript()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

@@ -55,6 +55,12 @@ internal sealed class ConventionRunner
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
+			if (!Directory.Exists(resolvedConvention.DirectoryPath))
+			{
+				await m_settings.StandardError.WriteLineAsync($"Convention '{reference.Path}' directory '{resolvedConvention.DirectoryPath}' was not found.");
+				return false;
+			}
+
 			var conventionConfigPath = Path.Combine(resolvedConvention.DirectoryPath, "convention.yml");
 			var conventionScriptPath = Path.Combine(resolvedConvention.DirectoryPath, "convention.ps1");
 			if (!File.Exists(conventionConfigPath) && !File.Exists(conventionScriptPath))

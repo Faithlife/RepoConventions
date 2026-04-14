@@ -71,13 +71,52 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("repo", "view"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.EqualTo(1));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--base"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("main"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--head"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("repo-conventions"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("Apply repository conventions"));
+			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[repo-conventions](https://github.com/Faithlife/RepoConventions)"));
+			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("add-file"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeLinksRemoteConventionsInPullRequestBody()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		var fakeGh = new FakeGitHubCli();
+		remoteRepo.WriteFile("conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/add-file@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(
+			["--open-pr"],
+			repo.RootPath,
+			remoteRepositoryUrlResolver: request =>
+				request is { Owner: "local-test", Repository: "remote-conventions" }
+					? remoteRepo.GetRepositoryUri()
+					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}."),
+			externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/local-test/remote-conventions/tree/main/conventions/add-file)"));
 		}
 	}
 
@@ -189,6 +228,8 @@ internal sealed class OpenPrTests
 
 		public string PrCreateOutput { get; set; } = "https://github.com/example/repo/pull/1";
 
+		public string RepoViewOutput { get; set; } = "https://github.com/example/repo";
+
 		public string PrListOutput { get; set; } = "[]";
 
 		public List<string> ListHeadsQueried { get; } = [];
@@ -217,6 +258,9 @@ internal sealed class OpenPrTests
 
 				return Task.FromResult(new ExternalCommandResult(0, PrListOutput, ""));
 			}
+
+			if (arguments is ["repo", "view", ..])
+				return Task.FromResult(new ExternalCommandResult(0, RepoViewOutput, ""));
 
 			if (arguments is ["pr", "create", ..])
 				return Task.FromResult(new ExternalCommandResult(PrCreateExitCode, PrCreateOutput, PrCreateExitCode == 0 ? "" : "create failed"));

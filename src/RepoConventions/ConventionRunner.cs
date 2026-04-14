@@ -18,7 +18,7 @@ internal sealed class ConventionRunner
 				return 1;
 		}
 
-		var appliedConventions = new List<string>();
+		var appliedConventions = new List<AppliedConvention>();
 		var success = await ApplyConfigurationFileAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), appliedConventions, cancellationToken);
 		if (!success)
 			return 1;
@@ -29,7 +29,7 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> ApplyConfigurationFileAsync(string configPath, HashSet<string> activeConventions, List<string> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> ApplyConfigurationFileAsync(string configPath, HashSet<string> activeConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
 		var references = ConventionConfiguration.Load(configPath);
 		var containingDirectory = Path.GetDirectoryName(configPath)!;
@@ -43,7 +43,7 @@ internal sealed class ConventionRunner
 		return true;
 	}
 
-	private async Task<bool> ApplyConventionReferenceAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<string> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> ApplyConventionReferenceAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
 		var resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		if (activeConventions.Contains(resolvedConvention.Identity))
@@ -85,7 +85,7 @@ internal sealed class ConventionRunner
 				createdCommit = scriptResult.CreatedCommit;
 			}
 
-			appliedConventions.Add(resolvedConvention.DisplayName);
+			appliedConventions.Add(new AppliedConvention(resolvedConvention.DisplayName, resolvedConvention.TargetRepositoryRelativePath, resolvedConvention.RemoteDirectory));
 			await m_settings.StandardOutput.WriteLineAsync(createdCommit
 				? $"Convention {resolvedConvention.DisplayName}: created commit."
 				: $"Convention {resolvedConvention.DisplayName}: no changes.");
@@ -156,14 +156,21 @@ internal sealed class ConventionRunner
 		{
 			var directoryPath = Path.Combine(m_settings.TargetRepositoryRoot, conventionPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
 			var name = new DirectoryInfo(directoryPath).Name;
-			return new ResolvedConvention(directoryPath, name, directoryPath);
+			return new ResolvedConvention(directoryPath, name, directoryPath, GetTargetRepositoryRelativePath(directoryPath), null);
 		}
 
 		if (conventionPath.StartsWith("./", StringComparison.Ordinal) || conventionPath.StartsWith("../", StringComparison.Ordinal))
 		{
 			var directoryPath = Path.GetFullPath(Path.Combine(containingDirectory, conventionPath));
 			var name = new DirectoryInfo(directoryPath).Name;
-			return new ResolvedConvention(directoryPath, name, directoryPath);
+
+			if (TryGetRemoteCloneContext(directoryPath, out var remoteRepository, out var remoteCloneRoot))
+			{
+				var remoteDirectoryPath = NormalizeGitHubPath(Path.GetRelativePath(remoteCloneRoot, directoryPath));
+				return new ResolvedConvention(directoryPath, name, directoryPath, null, new RemoteDirectoryReference(remoteRepository.Owner, remoteRepository.Repository, remoteRepository.Ref, remoteDirectoryPath));
+			}
+
+			return new ResolvedConvention(directoryPath, name, directoryPath, GetTargetRepositoryRelativePath(directoryPath), null);
 		}
 
 		var remotePath = RemoteConventionPath.Parse(conventionPath);
@@ -174,7 +181,7 @@ internal sealed class ConventionRunner
 		var displayName = string.IsNullOrEmpty(remotePath.SubPath)
 			? remotePath.Repository
 			: new DirectoryInfo(resolvedDirectoryPath).Name;
-		return new ResolvedConvention(resolvedDirectoryPath, displayName, remotePath.Identity);
+		return new ResolvedConvention(resolvedDirectoryPath, displayName, remotePath.Identity, null, new RemoteDirectoryReference(remotePath.Owner, remotePath.Repository, remotePath.Ref, remotePath.SubPath));
 	}
 
 	private async Task<string> GetOrCloneRemoteRepositoryAsync(RemoteConventionPath remotePath, CancellationToken cancellationToken)
@@ -198,6 +205,7 @@ internal sealed class ConventionRunner
 		}
 
 		m_remoteCloneCache.Add(remotePath.Identity, clonePath);
+		m_remoteRepositoryContexts[clonePath] = new RemoteRepositoryInfo(remotePath.Owner, remotePath.Repository, remotePath.Ref);
 		return clonePath;
 	}
 
@@ -245,7 +253,7 @@ internal sealed class ConventionRunner
 		return result.StandardOutput.Contains("number", StringComparison.Ordinal);
 	}
 
-	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, IReadOnlyList<string> appliedConventions, CancellationToken cancellationToken)
+	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, IReadOnlyList<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
 		var newCommits = await m_settings.TargetGitClient.RunAsync(["rev-list", "--count", $"{pullRequest.StartingBranch}..HEAD"], cancellationToken);
 		if (newCommits.ExitCode != 0)
@@ -258,7 +266,8 @@ internal sealed class ConventionRunner
 		if (pullRequest.HasOpenPullRequest)
 			return 0;
 
-		var body = BuildPullRequestBody(appliedConventions);
+		var targetRepositoryUrl = await GetTargetRepositoryUrlAsync(cancellationToken);
+		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName);
 		await m_settings.StandardOutput.WriteLineAsync($"Opening pull request from {pullRequest.BranchName} to {pullRequest.StartingBranch}...");
 		var createResult = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "create", "--base", pullRequest.StartingBranch, "--head", pullRequest.BranchName, "--title", "Apply repository conventions", "--body", body], cancellationToken);
 		if (createResult.ExitCode != 0)
@@ -276,16 +285,16 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private static string BuildPullRequestBody(IReadOnlyList<string> appliedConventions)
+	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
 	{
 		var lines = new List<string>
 		{
-			"This PR was generated by repo-conventions.",
+			"This PR was generated by [repo-conventions](https://github.com/Faithlife/RepoConventions).",
 			"",
 			"Applied conventions:",
 		};
 
-		lines.AddRange(appliedConventions.Select(static convention => $"- {convention}"));
+		lines.AddRange(appliedConventions.Select(convention => $"- {FormatAppliedConvention(convention, targetRepositoryUrl, branchName)}"));
 		return string.Join(Environment.NewLine, lines);
 	}
 
@@ -296,6 +305,60 @@ internal sealed class ConventionRunner
 	}
 
 	private static bool IsGitHubActions() => string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
+
+	private static string FormatAppliedConvention(AppliedConvention convention, string? targetRepositoryUrl, string branchName)
+	{
+		var url = BuildAppliedConventionUrl(convention, targetRepositoryUrl, branchName);
+		return url is null ? convention.DisplayName : $"[{convention.DisplayName}]({url})";
+	}
+
+	private static string? BuildAppliedConventionUrl(AppliedConvention convention, string? targetRepositoryUrl, string branchName)
+	{
+		if (convention.TargetRepositoryRelativePath is { } targetRepositoryRelativePath && targetRepositoryUrl is not null)
+			return $"{targetRepositoryUrl}/tree/{branchName}/{targetRepositoryRelativePath}";
+
+		if (convention.RemoteDirectory is { } remoteDirectory)
+		{
+			var repositoryUrl = $"https://github.com/{remoteDirectory.Owner}/{remoteDirectory.Repository}";
+			if (string.IsNullOrEmpty(remoteDirectory.DirectoryPath))
+				return remoteDirectory.Ref is null ? repositoryUrl : $"{repositoryUrl}/tree/{remoteDirectory.Ref}";
+
+			return $"{repositoryUrl}/tree/{remoteDirectory.Ref ?? "HEAD"}/{remoteDirectory.DirectoryPath}";
+		}
+
+		return null;
+	}
+
+	private static string NormalizeGitHubPath(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
+
+	private string GetTargetRepositoryRelativePath(string directoryPath) => NormalizeGitHubPath(Path.GetRelativePath(m_settings.TargetRepositoryRoot, directoryPath));
+
+	private bool TryGetRemoteCloneContext(string directoryPath, out RemoteRepositoryInfo remoteRepository, out string cloneRoot)
+	{
+		foreach (var candidate in m_remoteRepositoryContexts.OrderByDescending(static x => x.Key.Length))
+		{
+			var relativePath = Path.GetRelativePath(candidate.Key, directoryPath);
+			if (!relativePath.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relativePath))
+			{
+				remoteRepository = candidate.Value;
+				cloneRoot = candidate.Key;
+				return true;
+			}
+		}
+
+		remoteRepository = null!;
+		cloneRoot = null!;
+		return false;
+	}
+
+	private async Task<string?> GetTargetRepositoryUrlAsync(CancellationToken cancellationToken)
+	{
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["repo", "view", "--json", "url", "--jq", ".url"], cancellationToken);
+		if (result.ExitCode != 0)
+			return null;
+
+		return ExtractGitHubPullRequestUrl(result.StandardOutput, result.StandardError) ?? result.StandardOutput.Trim();
+	}
 
 	private static string? ExtractGitHubPullRequestUrl(string standardOutput, string standardError)
 	{
@@ -350,7 +413,13 @@ internal sealed class ConventionRunner
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, bool HasOpenPullRequest);
 
-	private sealed record ResolvedConvention(string DirectoryPath, string DisplayName, string Identity);
+	private sealed record AppliedConvention(string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
+
+	private sealed record RemoteDirectoryReference(string Owner, string Repository, string? Ref, string DirectoryPath);
+
+	private sealed record RemoteRepositoryInfo(string Owner, string Repository, string? Ref);
+
+	private sealed record ResolvedConvention(string DirectoryPath, string DisplayName, string Identity, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
 
 	private sealed record RemoteConventionPath(string Owner, string Repository, string SubPath, string? Ref)
 	{
@@ -375,4 +444,5 @@ internal sealed class ConventionRunner
 
 	private readonly ConventionRunnerSettings m_settings;
 	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, RemoteRepositoryInfo> m_remoteRepositoryContexts = new(StringComparer.Ordinal);
 }

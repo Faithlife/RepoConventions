@@ -50,6 +50,20 @@ internal sealed class GitRepoTests
 		}
 	}
 
+	[Test]
+	public async Task VersionOptionPrintsVersionInsteadOfHelp()
+	{
+		var result = await CliInvocation.InvokeAsync(["--version"], Environment.CurrentDirectory);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Not.Contain("--commit"));
+			Assert.That(result.StandardOutput.Trim(), Does.Match(@"^\d+\.\d+\.\d+([+-].+)?$"));
+		}
+	}
+
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
 
 	private static class CliInvocation

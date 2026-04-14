@@ -21,16 +21,27 @@ internal static class RepoConventionsCli
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
 		rootCommand.Options.Add(commitOption);
 		rootCommand.Options.Add(openPrOption);
-
-		if (args.Length == 0)
-			return await InvokeHelpAsync(rootCommand, standardOutput, standardError);
+		rootCommand.SetAction(parseResult =>
+			ExecuteAsync(
+				parseResult,
+				rootCommand,
+				commitOption,
+				openPrOption,
+				workingDirectory,
+				standardOutput,
+				standardError,
+				remoteRepositoryUrlResolver,
+				externalCommandRunner,
+				cancellationToken));
 
 		var parseResult = rootCommand.Parse(args);
-		if (parseResult.Errors.Count != 0)
-			return await InvokeParseResultAsync(parseResult, standardOutput, standardError);
+		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
+	}
 
+	private static async Task<int> ExecuteAsync(ParseResult parseResult, RootCommand rootCommand, Option<bool> commitOption, Option<bool> openPrOption, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	{
 		if (!parseResult.GetValue(commitOption) && !parseResult.GetValue(openPrOption))
-			return await InvokeHelpAsync(rootCommand, standardOutput, standardError);
+			return await InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken);
 
 		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
 		{
@@ -64,10 +75,10 @@ internal static class RepoConventionsCli
 		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption), cancellationToken);
 	}
 
-	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError) =>
-		InvokeParseResultAsync(rootCommand.Parse(["--help"]), standardOutput, standardError);
+	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken) =>
+		InvokeParseResultAsync(rootCommand.Parse(["--help"]), standardOutput, standardError, cancellationToken);
 
-	private static async Task<int> InvokeParseResultAsync(ParseResult parseResult, TextWriter standardOutput, TextWriter standardError)
+	private static async Task<int> InvokeParseResultAsync(ParseResult parseResult, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
 	{
 		var originalOutput = Console.Out;
 		var originalError = Console.Error;
@@ -76,14 +87,14 @@ internal static class RepoConventionsCli
 		{
 			Console.SetOut(standardOutput);
 			Console.SetError(standardError);
-			return await parseResult.InvokeAsync(cancellationToken: CancellationToken.None);
+			return await parseResult.InvokeAsync(cancellationToken: cancellationToken);
 		}
 		finally
 		{
 			Console.SetOut(originalOutput);
 			Console.SetError(originalError);
-			await standardOutput.FlushAsync();
-			await standardError.FlushAsync();
+			await standardOutput.FlushAsync(cancellationToken);
+			await standardError.FlushAsync(cancellationToken);
 		}
 	}
 

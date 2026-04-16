@@ -55,6 +55,8 @@ internal sealed class ConventionRunner
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
+			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
+
 			if (!Directory.Exists(resolvedConvention.DirectoryPath))
 			{
 				await m_settings.StandardError.WriteLineAsync($"Convention '{reference.Path}' directory '{resolvedConvention.DirectoryPath}' was not found.");
@@ -217,13 +219,13 @@ internal sealed class ConventionRunner
 		var startingBranch = await m_settings.TargetGitClient.GetCurrentBranchAsync(cancellationToken);
 		if (string.IsNullOrWhiteSpace(startingBranch))
 		{
-			await m_settings.StandardError.WriteLineAsync("The CLI must not be run from a detached HEAD when using --open-pr.");
+			await m_settings.StandardError.WriteLineAsync("repo-conventions must not be run from a detached HEAD when using --open-pr.");
 			return null;
 		}
 
 		if (await m_settings.TargetGitClient.HasUnpushedCommitsAsync(cancellationToken))
 		{
-			await m_settings.StandardError.WriteLineAsync("The CLI must be run with no unpushed commits when using --open-pr.");
+			await m_settings.StandardError.WriteLineAsync("repo-conventions must be run with no unpushed commits when using --open-pr.");
 			return null;
 		}
 

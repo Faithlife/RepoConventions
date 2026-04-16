@@ -38,6 +38,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(result.StandardOutput, Does.Contain("Convention add-file: applying."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
 		}
 	}

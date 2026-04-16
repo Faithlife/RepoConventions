@@ -42,4 +42,4 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: dnx repo-conventions --open-pr
+      run: dnx repo-conventions --yes -- --open-pr

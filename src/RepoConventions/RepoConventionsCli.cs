@@ -45,13 +45,13 @@ internal static class RepoConventionsCli
 
 		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
 		{
-			await standardError.WriteLineAsync("The CLI must be run from the repository root.");
+			await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");
 			return 1;
 		}
 
 		if (!await GitRepositoryValidator.IsCleanAsync(workingDirectory, cancellationToken))
 		{
-			await standardError.WriteLineAsync("The CLI must be run from a clean repository.");
+			await standardError.WriteLineAsync("repo-conventions must be run from a clean repository.");
 			return 1;
 		}
 

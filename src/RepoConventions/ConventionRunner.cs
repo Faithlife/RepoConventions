@@ -58,8 +58,8 @@ internal sealed class ConventionRunner
 		{
 			if (isGitHubActions)
 				await m_settings.StandardOutput.WriteLineAsync($"::group::Convention {resolvedConvention.DisplayName}");
-
-			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
+			else
+				await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
 
 			if (!Directory.Exists(resolvedConvention.DirectoryPath))
 			{

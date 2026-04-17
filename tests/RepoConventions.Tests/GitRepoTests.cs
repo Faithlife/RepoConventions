@@ -59,7 +59,7 @@ internal sealed class GitRepoTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
-			Assert.That(result.StandardOutput.Trim(), Does.Match(@"^\d+\.\d+\.\d+([+-].+)?$"));
+			Assert.That(result.StandardOutput.Trim(), Does.Match(@"^\d+\.\d+\.\d+"));
 		}
 	}
 

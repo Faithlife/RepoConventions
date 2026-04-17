@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 
 namespace RepoConventions;
 
@@ -56,6 +57,13 @@ internal sealed class GitClient
 	{
 		EnsureSuccess(await RunAsync(["add", "-A"], cancellationToken), "add -A");
 		EnsureSuccess(await RunAsync(["commit", "-m", message], cancellationToken), $"commit -m {message}");
+	}
+
+	public async Task<int> CountCommitsSinceAsync(string commit, CancellationToken cancellationToken)
+	{
+		var result = await RunAsync(["rev-list", "--count", $"{commit}..HEAD"], cancellationToken);
+		EnsureSuccess(result, $"rev-list --count {commit}..HEAD");
+		return int.Parse(result.StandardOutput.Trim(), CultureInfo.InvariantCulture);
 	}
 
 	public async Task ResetHardAsync(string commit, CancellationToken cancellationToken)

@@ -71,7 +71,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(repo.FileExists("first.txt"), Is.True);
 			Assert.That(repo.FileExists("second.txt"), Is.True);
 			Assert.That(result.StandardOutput, Does.Contain("Convention self-commit: created 2 commits."));
-			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(["Second self-created commit.", "First self-created commit."]));
+			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_selfCreatedCommitMessages));
 		}
 	}
 
@@ -455,4 +455,5 @@ internal sealed class ConventionExecutionTests
 				: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.");
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
+	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];
 }

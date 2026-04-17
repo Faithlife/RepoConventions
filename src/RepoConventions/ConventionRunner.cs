@@ -53,13 +53,14 @@ internal sealed class ConventionRunner
 		}
 
 		var isGitHubActions = IsGitHubActions();
+		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
 			if (isGitHubActions)
 				await m_settings.StandardOutput.WriteLineAsync($"::group::Convention {resolvedConvention.DisplayName}");
-			else
-				await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
+
+			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
 
 			if (!Directory.Exists(resolvedConvention.DirectoryPath))
 			{
@@ -75,7 +76,6 @@ internal sealed class ConventionRunner
 				return false;
 			}
 
-			var createdCommit = false;
 			if (File.Exists(conventionConfigPath))
 			{
 				if (!await ApplyConfigurationFileAsync(conventionConfigPath, activeConventions, appliedConventions, cancellationToken))
@@ -87,14 +87,16 @@ internal sealed class ConventionRunner
 				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, reference.Settings, resolvedConvention.DisplayName, cancellationToken);
 				if (!scriptResult.Succeeded)
 					return false;
-
-				createdCommit = scriptResult.CreatedCommit;
 			}
 
+			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
 			appliedConventions.Add(new AppliedConvention(resolvedConvention.DisplayName, resolvedConvention.TargetRepositoryRelativePath, resolvedConvention.RemoteDirectory));
-			await m_settings.StandardOutput.WriteLineAsync(createdCommit
-				? $"Convention {resolvedConvention.DisplayName}: created commit."
-				: $"Convention {resolvedConvention.DisplayName}: no changes.");
+			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
+			{
+				0 => $"Convention {resolvedConvention.DisplayName}: no changes.",
+				1 => $"Convention {resolvedConvention.DisplayName}: created 1 commit.",
+				_ => $"Convention {resolvedConvention.DisplayName}: created {createdCommitCount} commits.",
+			});
 			return true;
 		}
 		finally
@@ -142,10 +144,9 @@ internal sealed class ConventionRunner
 			if (await m_settings.TargetGitClient.HasChangesAsync(cancellationToken))
 			{
 				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}.", cancellationToken);
-				return ConventionExecutionResult.Success(createdCommit: true);
 			}
 
-			return ConventionExecutionResult.Success(createdCommit: false);
+			return ConventionExecutionResult.Success();
 		}
 		finally
 		{
@@ -413,11 +414,11 @@ internal sealed class ConventionRunner
 		return new ExternalCommandResult(process.ExitCode, standardOutput, standardError);
 	}
 
-	private sealed record ConventionExecutionResult(bool Succeeded, bool CreatedCommit)
+	private sealed record ConventionExecutionResult(bool Succeeded)
 	{
-		public static ConventionExecutionResult Failed() => new(false, false);
+		public static ConventionExecutionResult Failed() => new(false);
 
-		public static ConventionExecutionResult Success(bool createdCommit) => new(true, createdCommit);
+		public static ConventionExecutionResult Success() => new(true);
 	}
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, bool HasOpenPullRequest);

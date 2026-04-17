@@ -39,7 +39,39 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
 			Assert.That(result.StandardOutput, Does.Contain("Convention add-file: applying."));
+			Assert.That(result.StandardOutput, Does.Contain("Convention add-file: created 1 commit."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeReportsTotalCommitsCreatedByConventionScript()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/self-commit
+			""");
+		repo.WriteFile(".github/conventions/self-commit/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'first.txt') -Value 'first'
+			git add first.txt
+			git commit -m 'First self-created commit.'
+			Set-Content -Path (Join-Path $PWD 'second.txt') -Value 'second'
+			git add second.txt
+			git commit -m 'Second self-created commit.'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("first.txt"), Is.True);
+			Assert.That(repo.FileExists("second.txt"), Is.True);
+			Assert.That(result.StandardOutput, Does.Contain("Convention self-commit: created 2 commits."));
+			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(["Second self-created commit.", "First self-created commit."]));
 		}
 	}
 
@@ -69,7 +101,7 @@ internal sealed class ConventionExecutionTests
 			using (Assert.EnterMultipleScope())
 			{
 				Assert.That(result.ExitCode, Is.Zero);
-				Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nConvention add-file: applying...\nscript output\nConvention add-file: created commit.\n::endgroup::"));
+				Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nConvention add-file: applying...\nscript output\nConvention add-file: created 1 commit.\n::endgroup::"));
 			}
 		}
 		finally

@@ -86,6 +86,10 @@ internal sealed class GitClient
 			return;
 		}
 
+		EnsureSuccess(
+			await RunAsync(["fetch", "origin", $"+refs/heads/{branchName}:refs/remotes/origin/{branchName}"], cancellationToken),
+			$"fetch origin +refs/heads/{branchName}:refs/remotes/origin/{branchName}");
+
 		EnsureSuccess(await RunAsync(["switch", "-c", branchName, "--track", $"origin/{branchName}"], cancellationToken), $"switch -c {branchName} --track origin/{branchName}");
 	}
 

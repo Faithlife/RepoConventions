@@ -206,6 +206,35 @@ internal sealed class OpenPrTests
 		}
 	}
 
+	[Test]
+	public async Task OpenPrModeFetchesExistingPullRequestBranchWhenRemoteTrackingRefIsMissing()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.PrListOutput = /*lang=json,strict*/ "[{\"number\":1}]";
+		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewBranchAsync("repo-conventions");
+		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
+		await repo.SwitchToBranchAsync("main");
+		await repo.DeleteBranchAsync("repo-conventions");
+		await repo.DeleteRemoteTrackingBranchAsync("origin", "repo-conventions");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
+			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+		}
+	}
+
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
 
 	private static class CliInvocation

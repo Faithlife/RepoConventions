@@ -9,7 +9,7 @@ internal sealed class ConventionExecutionTests
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -32,7 +32,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -63,12 +63,13 @@ internal sealed class ConventionExecutionTests
 
 		try
 		{
-			var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+			var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+			var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 			using (Assert.EnterMultipleScope())
 			{
 				Assert.That(result.ExitCode, Is.Zero);
-				Assert.That(result.StandardOutput, Does.Contain("::group::Convention add-file\nConvention add-file: applying...\nscript output\nConvention add-file: created commit.\n::endgroup::"));
+				Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nConvention add-file: applying...\nscript output\nConvention add-file: created commit.\n::endgroup::"));
 			}
 		}
 		finally
@@ -96,7 +97,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -121,7 +122,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -141,7 +142,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -175,7 +176,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -206,7 +207,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -236,7 +237,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(
-			["--commit"],
+			["apply"],
 			repo.RootPath,
 			request =>
 				request is { Owner: "local-test", Repository: "remote-conventions" }
@@ -275,7 +276,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(
-			["--commit"],
+			["apply"],
 			repo.RootPath,
 			request =>
 				request is { Owner: "local-test", Repository: "remote-conventions" }
@@ -317,7 +318,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(
-			["--commit"],
+			["apply"],
 			repo.RootPath,
 			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
 
@@ -348,7 +349,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(
-			["--commit"],
+			["apply"],
 			repo.RootPath,
 			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
 
@@ -387,7 +388,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(
-			["--commit"],
+			["apply"],
 			repo.RootPath,
 			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
 

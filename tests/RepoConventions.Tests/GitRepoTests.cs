@@ -11,7 +11,7 @@ internal sealed class GitRepoTests
 		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -26,7 +26,7 @@ internal sealed class GitRepoTests
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		var nestedDirectory = repo.CreateDirectory("src");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], nestedDirectory);
+		var result = await CliInvocation.InvokeAsync(["apply"], nestedDirectory);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -41,7 +41,7 @@ internal sealed class GitRepoTests
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile("untracked.txt", "content");
 
-		var result = await CliInvocation.InvokeAsync(["--commit"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -59,8 +59,21 @@ internal sealed class GitRepoTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
-			Assert.That(result.StandardOutput, Does.Not.Contain("--commit"));
 			Assert.That(result.StandardOutput.Trim(), Does.Match(@"^\d+\.\d+\.\d+([+-].+)?$"));
+		}
+	}
+
+	[Test]
+	public async Task HelpOutputListsApplyCommandInsteadOfCommitOption()
+	{
+		var result = await CliInvocation.InvokeAsync(["--help"], Environment.CurrentDirectory);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("apply"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("--commit"));
 		}
 	}
 

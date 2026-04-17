@@ -234,13 +234,19 @@ internal sealed class ConventionRunner
 		for (var suffix = 1; ; suffix++)
 		{
 			var branchName = suffix == 1 ? "repo-conventions" : $"repo-conventions-{suffix}";
-			if (await HasOpenPullRequestAsync(branchName, cancellationToken))
+			var hasOpenPullRequest = await HasOpenPullRequestAsync(branchName, cancellationToken);
+			var branchExists = await m_settings.TargetGitClient.BranchExistsAsync(branchName, cancellationToken);
+			if (hasOpenPullRequest)
 			{
-				await m_settings.TargetGitClient.SwitchToExistingBranchAsync(branchName, cancellationToken);
+				if (branchExists)
+					await m_settings.TargetGitClient.SwitchToExistingBranchAsync(branchName, cancellationToken);
+				else
+					await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
+
 				return new PullRequestPreparation(startingBranch, branchName, HasOpenPullRequest: true);
 			}
 
-			if (!await m_settings.TargetGitClient.BranchExistsAsync(branchName, cancellationToken))
+			if (!branchExists)
 			{
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
 				return new PullRequestPreparation(startingBranch, branchName, HasOpenPullRequest: false);

@@ -92,6 +92,12 @@ internal sealed class TemporaryGitRepository : IDisposable
 		await RunGitAsync(RootPath, ["branch", "-D", branchName]);
 	}
 
+	public async Task DeleteRemoteTrackingBranchAsync(string remoteName, string branchName)
+	{
+		VerifyNotBare();
+		await RunGitAsync(RootPath, ["update-ref", "-d", $"refs/remotes/{remoteName}/{branchName}"]);
+	}
+
 	public async Task DetachHeadAsync()
 	{
 		VerifyNotBare();

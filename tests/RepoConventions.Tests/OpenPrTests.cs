@@ -12,7 +12,7 @@ internal sealed class OpenPrTests
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.DetachHeadAsync();
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -33,7 +33,7 @@ internal sealed class OpenPrTests
 		repo.WriteFile("unpushed.txt", "unpushed");
 		await repo.CommitAllAsync("Unpushed commit.");
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -60,7 +60,7 @@ internal sealed class OpenPrTests
 		await repo.AddRemoteAsync("origin", origin.RootPath);
 		await repo.PushAsync("origin", "main", setUpstream: true);
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -106,7 +106,7 @@ internal sealed class OpenPrTests
 		await repo.PushAsync("origin", "main", setUpstream: true);
 
 		var result = await CliInvocation.InvokeAsync(
-			["--open-pr"],
+			["apply", "--open-pr"],
 			repo.RootPath,
 			remoteRepositoryUrlResolver: request =>
 				request is { Owner: "local-test", Repository: "remote-conventions" }
@@ -132,7 +132,7 @@ internal sealed class OpenPrTests
 		await repo.AddRemoteAsync("origin", origin.RootPath);
 		await repo.PushAsync("origin", "main", setUpstream: true);
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -160,7 +160,7 @@ internal sealed class OpenPrTests
 		await repo.SwitchToBranchAsync("main");
 		await repo.DeleteBranchAsync("repo-conventions-2");
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -193,7 +193,7 @@ internal sealed class OpenPrTests
 		await repo.SwitchToBranchAsync("main");
 		await repo.DeleteBranchAsync("repo-conventions");
 
-		var result = await CliInvocation.InvokeAsync(["--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 
 		using (Assert.EnterMultipleScope())
 		{

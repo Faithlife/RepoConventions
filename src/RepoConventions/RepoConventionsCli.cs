@@ -9,23 +9,19 @@ internal static class RepoConventionsCli
 
 	internal static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
-		var commitOption = new Option<bool>("--commit")
-		{
-			Description = "Apply conventions and create commits as needed.",
-		};
 		var openPrOption = new Option<bool>("--open-pr")
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
 		};
 
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
-		rootCommand.Options.Add(commitOption);
-		rootCommand.Options.Add(openPrOption);
-		rootCommand.SetAction(parseResult =>
-			ExecuteAsync(
+		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken));
+
+		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
+		applyCommand.Options.Add(openPrOption);
+		applyCommand.SetAction(parseResult =>
+			ExecuteApplyAsync(
 				parseResult,
-				rootCommand,
-				commitOption,
 				openPrOption,
 				workingDirectory,
 				standardOutput,
@@ -33,16 +29,14 @@ internal static class RepoConventionsCli
 				remoteRepositoryUrlResolver,
 				externalCommandRunner,
 				cancellationToken));
+		rootCommand.Subcommands.Add(applyCommand);
 
 		var parseResult = rootCommand.Parse(args);
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
 	}
 
-	private static async Task<int> ExecuteAsync(ParseResult parseResult, RootCommand rootCommand, Option<bool> commitOption, Option<bool> openPrOption, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<bool> openPrOption, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
-		if (!parseResult.GetValue(commitOption) && !parseResult.GetValue(openPrOption))
-			return await InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken);
-
 		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
 		{
 			await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");

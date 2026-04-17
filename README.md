@@ -19,7 +19,7 @@ conventions:
 Use the `repo-conventions` CLI (e.g. via GitHub workflow) to apply the conventions to the repository and create a pull request if any changes are needed.
 
 ```pwsh
-dnx repo-conventions --open-pr
+dnx repo-conventions apply --open-pr
 ```
 
 ### Convention paths
@@ -46,8 +46,8 @@ The convention script should check the repository to see if it adheres to the co
 
 The `repo-conventions` CLI can be installed as a .NET tool or run with `dnx`.
 
-When run with no arguments, the CLI shows usage.
+#### apply
 
-When run with a `--commit` or `--open-pr` argument, each convention is applied in turn.
+Use the `apply` command to apply the configured conventions, creating commits as needed.
 
-With `--open-pr`, the CLI then opens a PR if applying the conventions resulted in any commits.
+Use the `--open-pr` option to open a PR if applying the conventions resulted in any commits.

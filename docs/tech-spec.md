@@ -14,8 +14,8 @@ This document captures the current implementation target for the CLI.
 - Use `System.CommandLine` for command-line parsing.
 - With no arguments, show usage.
 - If `.github/conventions.yml` does not exist, fail.
-- `--commit` applies conventions and creates commits as needed.
-- `--open-pr` implies `--commit`, then opens or updates a pull request.
+- `apply` applies conventions and creates commits as needed.
+- `apply --open-pr` then opens or updates a pull request.
 - `--help` and `--version` should be supported.
 - Do not add `--verbose` or `--dry-run` yet.
 
@@ -41,7 +41,7 @@ This document captures the current implementation target for the CLI.
 ## Git Behavior
 
 - The target repository must start clean, with no staged changes, no unstaged tracked changes, and no untracked non-ignored files.
-- `--commit` and `--open-pr` create commits after each convention that leaves changes behind.
+- `apply` and `apply --open-pr` create commits after each convention that leaves changes behind.
 - Auto-created commit messages use `Apply convention <name>.`
 - `<name>` is the convention directory name, or the repository name when the convention is at the repository root.
 - If a convention fails, the CLI should clean up changes from that failed convention automatically.
@@ -52,8 +52,8 @@ This document captures the current implementation target for the CLI.
 
 - Use `gh` to create pull requests.
 - Assume `git` and `gh` are already authenticated correctly.
-- If `--open-pr` is run from a detached HEAD, fail.
-- `--open-pr` requires no unpushed commits before it starts.
+- If `apply --open-pr` is run from a detached HEAD, fail.
+- `apply --open-pr` requires no unpushed commits before it starts.
 - Use a branch based on the branch that was checked out when the CLI started.
 - The first convention PR branch should be named `repo-conventions`.
 - If the previous convention PR was closed, create a new branch such as `repo-conventions-2`.

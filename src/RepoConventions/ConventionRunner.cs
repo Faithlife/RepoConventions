@@ -52,9 +52,13 @@ internal sealed class ConventionRunner
 			return true;
 		}
 
+		var isGitHubActions = IsGitHubActions();
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
+			if (isGitHubActions)
+				await m_settings.StandardOutput.WriteLineAsync($"::group::Convention {resolvedConvention.DisplayName}");
+
 			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
 
 			if (!Directory.Exists(resolvedConvention.DirectoryPath))
@@ -95,6 +99,9 @@ internal sealed class ConventionRunner
 		}
 		finally
 		{
+			if (isGitHubActions)
+				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
+
 			activeConventions.Remove(resolvedConvention.Identity);
 		}
 	}
@@ -107,9 +114,6 @@ internal sealed class ConventionRunner
 
 		try
 		{
-			if (IsGitHubActions())
-				await m_settings.StandardOutput.WriteLineAsync($"::group::Convention {conventionName}");
-
 			var startInfo = new ProcessStartInfo("pwsh")
 			{
 				WorkingDirectory = m_settings.TargetRepositoryRoot,
@@ -127,9 +131,6 @@ internal sealed class ConventionRunner
 			var errorTask = PumpOutputAsync(process.StandardError, m_settings.StandardError);
 			await process.WaitForExitAsync(cancellationToken);
 			await Task.WhenAll(outputTask, errorTask);
-
-			if (IsGitHubActions())
-				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
 
 			if (process.ExitCode != 0)
 			{

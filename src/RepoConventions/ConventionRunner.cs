@@ -224,22 +224,42 @@ internal sealed class ConventionRunner
 			return null;
 		}
 
+		var openPullRequests = await GetOpenPullRequestsAsync(cancellationToken);
+		var matchingPullRequests = openPullRequests
+			.Where(x => x.BaseRefName == startingBranch)
+			.Where(x => TryParseConventionBranchSuffix(x.HeadRefName) is not null)
+			.ToList();
+		if (matchingPullRequests.Count > 1)
+		{
+			var urls = string.Join(", ", matchingPullRequests.Select(static x => x.Url));
+			await m_settings.StandardError.WriteLineAsync($"Multiple repo-conventions pull requests are already open for {startingBranch}: {urls}");
+			return null;
+		}
+
+		if (matchingPullRequests.Count == 1)
+		{
+			var matchingPullRequest = matchingPullRequests[0];
+			if (await m_settings.TargetGitClient.BranchExistsAsync(matchingPullRequest.HeadRefName, cancellationToken))
+				await m_settings.TargetGitClient.SwitchToExistingBranchAsync(matchingPullRequest.HeadRefName, cancellationToken);
+			else
+				await m_settings.TargetGitClient.SwitchToNewBranchAsync(matchingPullRequest.HeadRefName, cancellationToken);
+
+			await m_settings.StandardOutput.WriteLineAsync($"Pull request is already open: {matchingPullRequest.Url}");
+			return new PullRequestPreparation(startingBranch, matchingPullRequest.HeadRefName, HasOpenPullRequest: true);
+		}
+
+		var openPullRequestBranches = openPullRequests
+			.Select(x => x.HeadRefName)
+			.Where(x => TryParseConventionBranchSuffix(x) is not null)
+			.ToHashSet(StringComparer.Ordinal);
+
 		for (var suffix = 1; ; suffix++)
 		{
-			var branchName = suffix == 1 ? "repo-conventions" : $"repo-conventions-{suffix}";
-			var openPullRequestUrl = await GetOpenPullRequestUrlAsync(branchName, cancellationToken);
+			var branchName = GetConventionBranchName(suffix);
+			if (openPullRequestBranches.Contains(branchName))
+				continue;
+
 			var branchExists = await m_settings.TargetGitClient.BranchExistsAsync(branchName, cancellationToken);
-			if (openPullRequestUrl is not null)
-			{
-				if (branchExists)
-					await m_settings.TargetGitClient.SwitchToExistingBranchAsync(branchName, cancellationToken);
-				else
-					await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
-
-				await m_settings.StandardOutput.WriteLineAsync($"Pull request is already open: {openPullRequestUrl}");
-				return new PullRequestPreparation(startingBranch, branchName, HasOpenPullRequest: true);
-			}
-
 			if (!branchExists)
 			{
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
@@ -248,13 +268,20 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	private async Task<string?> GetOpenPullRequestUrlAsync(string branchName, CancellationToken cancellationToken)
+	private async Task<IReadOnlyList<GitHubPullRequest>> GetOpenPullRequestsAsync(CancellationToken cancellationToken)
 	{
-		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--head", branchName, "--json", "url", "--jq", ".[0].url"], cancellationToken);
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--json", "url,headRefName,baseRefName"], cancellationToken);
 		if (result.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to query pull requests with gh: {result.StandardError}{result.StandardOutput}");
 
-		return ExtractGitHubPullRequestUrl(result.StandardOutput, result.StandardError);
+		try
+		{
+			return JsonSerializer.Deserialize<IReadOnlyList<GitHubPullRequest>>(string.IsNullOrWhiteSpace(result.StandardOutput) ? "[]" : result.StandardOutput, s_pullRequestJsonSerializerOptions) ?? [];
+		}
+		catch (JsonException ex)
+		{
+			throw new InvalidOperationException($"Failed to parse pull requests from gh: {result.StandardOutput}{result.StandardError}", ex);
+		}
 	}
 
 	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, IReadOnlyList<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
@@ -383,6 +410,20 @@ internal sealed class ConventionRunner
 		return null;
 	}
 
+	private static string GetConventionBranchName(int suffix) => suffix == 1 ? "repo-conventions" : $"repo-conventions-{suffix}";
+
+	private static int? TryParseConventionBranchSuffix(string branchName)
+	{
+		if (branchName == "repo-conventions")
+			return 1;
+
+		const string prefix = "repo-conventions-";
+		if (!branchName.StartsWith(prefix, StringComparison.Ordinal))
+			return null;
+
+		return int.TryParse(branchName[prefix.Length..], out var suffix) && suffix >= 2 ? suffix : null;
+	}
+
 	private async Task<ExternalCommandResult> RunExternalCommandAsync(string fileName, string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
 	{
 		if (m_settings.ExternalCommandRunner is { } externalCommandRunner)
@@ -419,6 +460,8 @@ internal sealed class ConventionRunner
 		public static ConventionExecutionResult Success() => new(true);
 	}
 
+	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName);
+
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, bool HasOpenPullRequest);
 
 	private sealed record AppliedConvention(string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
@@ -449,6 +492,11 @@ internal sealed class ConventionRunner
 			return new RemoteConventionPath(owner, repository, subPath, reference);
 		}
 	}
+
+	private static readonly JsonSerializerOptions s_pullRequestJsonSerializerOptions = new()
+	{
+		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+	};
 
 	private readonly ConventionRunnerSettings m_settings;
 	private readonly Dictionary<string, string> m_remoteCloneCache = new(StringComparer.Ordinal);

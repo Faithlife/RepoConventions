@@ -176,7 +176,7 @@ internal sealed class OpenPrTests
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
-		fakeGh.PrListOutput = /*lang=json,strict*/ "[{\"number\":1}]";
+		fakeGh.PrListOutput = "https://github.com/example/repo/pull/1";
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -199,6 +199,7 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Pull request is already open: https://github.com/example/repo/pull/1"));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
@@ -212,7 +213,7 @@ internal sealed class OpenPrTests
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
-		fakeGh.PrListOutput = /*lang=json,strict*/ "[{\"number\":1}]";
+		fakeGh.PrListOutput = "https://github.com/example/repo/pull/1";
 		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.AddRemoteAsync("origin", origin.RootPath);
@@ -229,6 +230,7 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Pull request is already open: https://github.com/example/repo/pull/1"));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);

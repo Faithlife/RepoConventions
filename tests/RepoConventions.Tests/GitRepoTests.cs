@@ -64,7 +64,7 @@ internal sealed class GitRepoTests
 	}
 
 	[Test]
-	public async Task HelpOutputListsApplyCommandInsteadOfCommitOption()
+	public async Task HelpOutputListsCommandsInsteadOfCommitOption()
 	{
 		var result = await CliInvocation.InvokeAsync(["--help"], Environment.CurrentDirectory);
 
@@ -72,6 +72,7 @@ internal sealed class GitRepoTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("add"));
 			Assert.That(result.StandardOutput, Does.Contain("apply"));
 			Assert.That(result.StandardOutput, Does.Not.Contain("--commit"));
 		}

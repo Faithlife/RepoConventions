@@ -234,15 +234,16 @@ internal sealed class ConventionRunner
 		for (var suffix = 1; ; suffix++)
 		{
 			var branchName = suffix == 1 ? "repo-conventions" : $"repo-conventions-{suffix}";
-			var hasOpenPullRequest = await HasOpenPullRequestAsync(branchName, cancellationToken);
+			var openPullRequestUrl = await GetOpenPullRequestUrlAsync(branchName, cancellationToken);
 			var branchExists = await m_settings.TargetGitClient.BranchExistsAsync(branchName, cancellationToken);
-			if (hasOpenPullRequest)
+			if (openPullRequestUrl is not null)
 			{
 				if (branchExists)
 					await m_settings.TargetGitClient.SwitchToExistingBranchAsync(branchName, cancellationToken);
 				else
 					await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
 
+				await m_settings.StandardOutput.WriteLineAsync($"Pull request is already open: {openPullRequestUrl}");
 				return new PullRequestPreparation(startingBranch, branchName, HasOpenPullRequest: true);
 			}
 
@@ -254,13 +255,13 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	private async Task<bool> HasOpenPullRequestAsync(string branchName, CancellationToken cancellationToken)
+	private async Task<string?> GetOpenPullRequestUrlAsync(string branchName, CancellationToken cancellationToken)
 	{
-		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--head", branchName, "--json", "number"], cancellationToken);
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--head", branchName, "--json", "url", "--jq", ".[0].url"], cancellationToken);
 		if (result.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to query pull requests with gh: {result.StandardError}{result.StandardOutput}");
 
-		return result.StandardOutput.Contains("number", StringComparison.Ordinal);
+		return ExtractGitHubPullRequestUrl(result.StandardOutput, result.StandardError);
 	}
 
 	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, IReadOnlyList<AppliedConvention> appliedConventions, CancellationToken cancellationToken)

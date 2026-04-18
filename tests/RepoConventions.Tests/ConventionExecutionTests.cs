@@ -76,7 +76,7 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	public async Task CommitModeWritesApplyingAndFinalStatusInsideGitHubActionsGroup()
+	public async Task CommitModeWritesApplyingAndFinalStatusWithoutGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile(".github/conventions.yml", """
@@ -90,23 +90,15 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var originalGitHubActions = Environment.GetEnvironmentVariable("GITHUB_ACTIONS");
-		Environment.SetEnvironmentVariable("GITHUB_ACTIONS", "true");
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
-		try
+		using (Assert.EnterMultipleScope())
 		{
-			var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
-			var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
-
-			using (Assert.EnterMultipleScope())
-			{
-				Assert.That(result.ExitCode, Is.Zero);
-				Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nConvention add-file: applying...\nscript output\nConvention add-file: created 1 commit.\n::endgroup::"));
-			}
-		}
-		finally
-		{
-			Environment.SetEnvironmentVariable("GITHUB_ACTIONS", originalGitHubActions);
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(normalizedOutput, Does.Contain("Convention add-file: applying...\nscript output\nConvention add-file: created 1 commit."));
+			Assert.That(normalizedOutput, Does.Not.Contain("::group::"));
+			Assert.That(normalizedOutput, Does.Not.Contain("::endgroup::"));
 		}
 	}
 

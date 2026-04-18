@@ -52,14 +52,10 @@ internal sealed class ConventionRunner
 			return true;
 		}
 
-		var isGitHubActions = IsGitHubActions();
 		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
-			if (isGitHubActions)
-				await m_settings.StandardOutput.WriteLineAsync($"::group::Convention {resolvedConvention.DisplayName}");
-
 			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
 
 			if (!Directory.Exists(resolvedConvention.DirectoryPath))
@@ -101,9 +97,6 @@ internal sealed class ConventionRunner
 		}
 		finally
 		{
-			if (isGitHubActions)
-				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
-
 			activeConventions.Remove(resolvedConvention.Identity);
 		}
 	}
@@ -312,8 +305,6 @@ internal sealed class ConventionRunner
 		while (await reader.ReadLineAsync() is { } line)
 			await writer.WriteLineAsync(line);
 	}
-
-	private static bool IsGitHubActions() => string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
 
 	private static string FormatConventionsLabel(string? targetRepositoryUrl, string branchName)
 	{

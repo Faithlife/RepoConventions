@@ -36,7 +36,6 @@ This document captures the current implementation target for the CLI.
 - Pass one argument: the path to a JSON file.
 - The JSON payload contains only `settings`.
 - Convention script output should flow directly to the caller.
-- Under GitHub Actions, each convention run should be wrapped in its own log group.
 
 ## Git Behavior
 
@@ -65,7 +64,6 @@ This document captures the current implementation target for the CLI.
 ## Console Output
 
 - Convention script output should flow directly to the caller.
-- Under GitHub Actions, each convention run should be wrapped in its own log group.
 - The CLI should print a short summary for each convention.
 
 ## Future Ideas

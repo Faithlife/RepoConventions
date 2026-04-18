@@ -96,3 +96,7 @@ $settings = $payload.settings
 - Test the convention with Pester if possible.
 - Use syntax compatible with Pester 3.x, since that's what's generally available.
 - Put Pester tests in the same directory as the convention they cover, e.g. `conventions/my-convention/convention.Tests.ps1`.
+- Verify behavior against a clean temporary repository.
+- Test both an already-compliant repository and a non-compliant repository.
+- Re-run after the first successful application to confirm idempotency.
+- If the convention has settings, exercise at least one non-default settings case.

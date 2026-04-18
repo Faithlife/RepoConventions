@@ -45,8 +45,10 @@ Example:
 
 ```yaml
 conventions:
-	- path: ../dotnet-style
-	- path: ../license-files
+  - path: ../dotnet-sdk
+    settings:
+      version: 10
+  - path: ../dotnet-slnx
 ```
 
 ## Writing `convention.ps1`
@@ -64,14 +66,14 @@ conventions:
 Minimal pattern:
 
 ```powershell
+param(
+  [Parameter(Mandatory = $true)]
+  [string] $PayloadPath
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-param(
-	[Parameter(Mandatory = $true)]
-	[string] $PayloadPath
-)
 
 $payload = Get-Content -Raw $PayloadPath | ConvertFrom-Json
 $settings = $payload.settings
@@ -88,3 +90,9 @@ $settings = $payload.settings
 ## Documentation
 
 - Always include a `README.md` in the convention directory documenting the convention's purpose, supported settings, and any required tools or frameworks.
+
+## Testing
+
+- Test the convention with Pester if possible.
+- Use syntax compatible with Pester 3.x, since that's what's generally available.
+- Put Pester tests in the same directory as the convention they cover, e.g. `conventions/my-convention/convention.Tests.ps1`.

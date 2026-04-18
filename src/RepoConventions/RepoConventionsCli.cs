@@ -13,6 +13,10 @@ internal static class RepoConventionsCli
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
 		};
+		var conventionPathArgument = new Argument<string>("path")
+		{
+			Description = "Convention path to add to .github/conventions.yml.",
+		};
 
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
 		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken));
@@ -30,6 +34,18 @@ internal static class RepoConventionsCli
 				externalCommandRunner,
 				cancellationToken));
 		rootCommand.Subcommands.Add(applyCommand);
+
+		var addCommand = new Command("add", "Add a convention path to the configuration file.");
+		addCommand.Arguments.Add(conventionPathArgument);
+		addCommand.SetAction(parseResult =>
+			ExecuteAddAsync(
+				parseResult,
+				conventionPathArgument,
+				workingDirectory,
+				standardOutput,
+				standardError,
+				cancellationToken));
+		rootCommand.Subcommands.Add(addCommand);
 
 		var parseResult = rootCommand.Parse(args);
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
@@ -67,6 +83,24 @@ internal static class RepoConventionsCli
 			ExternalCommandRunner = externalCommandRunner,
 		});
 		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption), cancellationToken);
+	}
+
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Argument<string> conventionPathArgument, string workingDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+	{
+		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
+		{
+			await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");
+			return 1;
+		}
+
+		var configPath = Path.Combine(workingDirectory, ".github", "conventions.yml");
+		var conventionPath = parseResult.GetValue(conventionPathArgument) ?? throw new InvalidOperationException("Missing convention path.");
+		if (ConventionConfiguration.AddConventionPath(configPath, conventionPath))
+			await standardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '.github/conventions.yml'.");
+		else
+			await standardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '.github/conventions.yml'.");
+
+		return 0;
 	}
 
 	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken) =>

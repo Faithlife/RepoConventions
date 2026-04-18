@@ -51,3 +51,9 @@ The `repo-conventions` CLI can be installed as a .NET tool or run with `dnx`.
 Use the `apply` command to apply the configured conventions, creating commits as needed.
 
 Use the `--open-pr` option to open a PR if applying the conventions resulted in any commits.
+
+#### add
+
+Use the `add` command to add a convention path to `.github/conventions.yml`.
+
+If the configuration file does not exist, it is created. If the path is already present, the file is left unchanged.

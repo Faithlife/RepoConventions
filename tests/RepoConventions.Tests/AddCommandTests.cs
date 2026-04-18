@@ -1,0 +1,107 @@
+using NUnit.Framework;
+
+namespace RepoConventions.Tests;
+
+internal sealed class AddCommandTests
+{
+	[Test]
+	public async Task AddModeCreatesConventionsFileWhenMissing()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.True);
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+		}
+	}
+
+	[Test]
+	public async Task AddModeAppendsConventionPathToExistingFileWithoutDroppingSettings()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			  - path: ./conventions/existing
+			    settings:
+			      enabled: true
+			""");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_existingAndNewConventionPaths));
+			Assert.That(references[0].Settings?["enabled"]?.GetValue<bool>(), Is.True);
+		}
+	}
+
+	[Test]
+	public async Task AddModeDoesNotDuplicateExistingConventionPath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			  - path: ./conventions/add-file
+			""");
+		var originalContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml"));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("already present"));
+			Assert.That(updatedContents, Is.EqualTo(originalContents));
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+		}
+	}
+
+	[Test]
+	public async Task AddModeSucceedsEvenWhenRepositoryIsDirty()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile("untracked.txt", "content");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.True);
+		}
+	}
+
+	private static readonly string[] s_addFileConventionPaths = ["./conventions/add-file"];
+	private static readonly string[] s_existingAndNewConventionPaths = ["./conventions/existing", "./conventions/new"];
+
+	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
+
+	private static class CliInvocation
+	{
+		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory)
+		{
+			var standardOutput = new StringWriter();
+			var standardError = new StringWriter();
+
+			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, CancellationToken.None);
+
+			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
+		}
+	}
+}

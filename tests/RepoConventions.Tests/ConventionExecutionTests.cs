@@ -38,8 +38,8 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
-			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention add-file\nConvention add-file: created 1 commit."));
-			Assert.That(result.StandardOutput, Does.Contain("Convention add-file: created 1 commit."));
+			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
+			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention add-file."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
 		}
 	}
@@ -70,8 +70,34 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("first.txt"), Is.True);
 			Assert.That(repo.FileExists("second.txt"), Is.True);
-			Assert.That(result.StandardOutput, Does.Contain("Convention self-commit: created 2 commits."));
+			Assert.That(result.StandardOutput, Does.Contain("Created 2 commits for convention self-commit."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_selfCreatedCommitMessages));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeDoesNotReportNoChangesForConventionThatCreatesNoCommit()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/no-op
+			""");
+		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'script output'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention no-op\nscript output\n"));
+			Assert.That(normalizedOutput, Does.Not.Contain("no changes"));
+			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention no-op."));
 		}
 	}
 
@@ -96,7 +122,7 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nscript output\nConvention add-file: created 1 commit."));
+			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nscript output\nCreated 1 commit for convention add-file."));
 			Assert.That(normalizedOutput, Does.Not.Contain("::group::"));
 			Assert.That(normalizedOutput, Does.Not.Contain("::endgroup::"));
 		}
@@ -125,7 +151,7 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nscript output\nConvention add-file: created 1 commit.\n::endgroup::"));
+			Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nscript output\nCreated 1 commit for convention add-file.\n::endgroup::"));
 			Assert.That(normalizedOutput, Does.Not.Contain("\nConvention add-file\nscript output"));
 		}
 	}
@@ -235,8 +261,46 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("child.txt"), Is.True);
 			Assert.That(repo.FileExists("parent.txt"), Is.True);
-			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention child (from parent)\nConvention child: created 1 commit.\n\nConvention parent\n"));
+			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
+			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeDoesNotDoubleCountChildCommitForCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.ps1", """
+			param([string] $configPath)
+			if (-not (Test-Path (Join-Path $PWD 'child.txt'))) { throw 'child missing' }
+			Write-Output 'parent saw child'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("child.txt"), Is.True);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\nparent saw child\n"));
+			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention parent."));
+			Assert.That(normalizedOutput, Does.Not.Contain("Created 2 commits for convention parent."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child."));
 		}
 	}
 
@@ -416,7 +480,8 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("remote-child.txt"), Is.True);
 			Assert.That(repo.FileExists("remote-parent.txt"), Is.True);
-			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention child (from parent)\nConvention child: created 1 commit.\n\nConvention parent\n"));
+			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
+			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
 		}
 	}

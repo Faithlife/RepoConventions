@@ -75,15 +75,13 @@ internal sealed class ConventionRunner
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
-			var headSnapshotIndex = plannedConventions.Count;
-
 			if (File.Exists(conventionConfigPath))
 			{
 				if (!await BuildConventionPlanAsync(conventionConfigPath, activeConventions, plannedConventions, resolvedConvention.DisplayName, cancellationToken))
 					return false;
 			}
 
-			plannedConventions.Add(new PlannedConvention(resolvedConvention, reference.Settings, sourceConventionName, headSnapshotIndex));
+			plannedConventions.Add(new PlannedConvention(resolvedConvention, reference.Settings, sourceConventionName));
 			return true;
 		}
 		finally
@@ -94,20 +92,16 @@ internal sealed class ConventionRunner
 
 	private async Task<bool> ApplyConventionPlanAsync(IReadOnlyList<PlannedConvention> plannedConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
-		var headSnapshots = new List<string>(plannedConventions.Count);
-		for (var index = 0; index < plannedConventions.Count; index++)
+		foreach (var plannedConvention in plannedConventions)
 		{
-			headSnapshots.Add(await m_settings.TargetGitClient.GetHeadAsync(cancellationToken));
-			var plannedConvention = plannedConventions[index];
-			var headBeforeConvention = headSnapshots[plannedConvention.HeadSnapshotIndex];
-			if (!await ApplyPlannedConventionAsync(plannedConvention, headBeforeConvention, appliedConventions, cancellationToken))
+			if (!await ApplyPlannedConventionAsync(plannedConvention, appliedConventions, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, string headBeforeConvention, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
 		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
 		var openedGitHubActionsGroup = IsRunningInGitHubActions();
@@ -123,6 +117,7 @@ internal sealed class ConventionRunner
 
 		try
 		{
+			var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 			var conventionScriptPath = Path.Combine(plannedConvention.ResolvedConvention.DirectoryPath, "convention.ps1");
 			if (File.Exists(conventionScriptPath))
 			{
@@ -133,12 +128,15 @@ internal sealed class ConventionRunner
 
 			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
 			appliedConventions.Add(new AppliedConvention(plannedConvention.ResolvedConvention.DisplayName, plannedConvention.ResolvedConvention.TargetRepositoryRelativePath, plannedConvention.ResolvedConvention.RemoteDirectory));
-			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
+			if (createdCommitCount > 0)
 			{
-				0 => $"Convention {plannedConvention.ResolvedConvention.DisplayName}: no changes.",
-				1 => $"Convention {plannedConvention.ResolvedConvention.DisplayName}: created 1 commit.",
-				_ => $"Convention {plannedConvention.ResolvedConvention.DisplayName}: created {createdCommitCount} commits.",
-			});
+				await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
+				{
+					1 => $"Created 1 commit for convention {plannedConvention.ResolvedConvention.DisplayName}.",
+					_ => $"Created {createdCommitCount} commits for convention {plannedConvention.ResolvedConvention.DisplayName}.",
+				});
+			}
+
 			return true;
 		}
 		finally
@@ -603,7 +601,7 @@ internal sealed class ConventionRunner
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
-	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, string? SourceConventionName, int HeadSnapshotIndex);
+	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, string? SourceConventionName);
 
 	private sealed record AppliedConvention(string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
 

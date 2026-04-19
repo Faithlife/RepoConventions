@@ -33,13 +33,14 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
-			Assert.That(result.StandardOutput, Does.Contain("Convention add-file: applying."));
-			Assert.That(result.StandardOutput, Does.Contain("Convention add-file: created 1 commit."));
+			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
+			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention add-file."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
 		}
 	}
@@ -70,15 +71,43 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("first.txt"), Is.True);
 			Assert.That(repo.FileExists("second.txt"), Is.True);
-			Assert.That(result.StandardOutput, Does.Contain("Convention self-commit: created 2 commits."));
+			Assert.That(result.StandardOutput, Does.Contain("Created 2 commits for convention self-commit."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_selfCreatedCommitMessages));
 		}
 	}
 
 	[Test]
-	public async Task CommitModeWritesApplyingAndFinalStatusInsideGitHubActionsGroup()
+	public async Task CommitModeDoesNotReportNoChangesForConventionThatCreatesNoCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/no-op
+			""");
+		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'script output'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention no-op\nscript output\n"));
+			Assert.That(normalizedOutput, Does.Not.Contain("no changes"));
+			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention no-op."));
+		}
+	}
+
+	[Test]
+	[NonParallelizable]
+	public async Task CommitModeWritesBlankLineBeforeStartMessageWithoutGitHubActionsGroupMarkers()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", null);
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -90,23 +119,43 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var originalGitHubActions = Environment.GetEnvironmentVariable("GITHUB_ACTIONS");
-		Environment.SetEnvironmentVariable("GITHUB_ACTIONS", "true");
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
-		try
+		using (Assert.EnterMultipleScope())
 		{
-			var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
-			var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
-
-			using (Assert.EnterMultipleScope())
-			{
-				Assert.That(result.ExitCode, Is.Zero);
-				Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nConvention add-file: applying...\nscript output\nConvention add-file: created 1 commit.\n::endgroup::"));
-			}
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nscript output\nCreated 1 commit for convention add-file."));
+			Assert.That(normalizedOutput, Does.Not.Contain("::group::"));
+			Assert.That(normalizedOutput, Does.Not.Contain("::endgroup::"));
 		}
-		finally
+	}
+
+	[Test]
+	[NonParallelizable]
+	public async Task CommitModeWrapsConventionOutputInGitHubActionsGroupMarkers()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", "true");
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'script output'
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+
+		using (Assert.EnterMultipleScope())
 		{
-			Environment.SetEnvironmentVariable("GITHUB_ACTIONS", originalGitHubActions);
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nscript output\nCreated 1 commit for convention add-file.\n::endgroup::"));
+			Assert.That(normalizedOutput, Does.Not.Contain("\nConvention add-file\nscript output"));
 		}
 	}
 
@@ -209,13 +258,89 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("child.txt"), Is.True);
 			Assert.That(repo.FileExists("parent.txt"), Is.True);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
+			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeDoesNotDoubleCountChildCommitForCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.ps1", """
+			param([string] $configPath)
+			if (-not (Test-Path (Join-Path $PWD 'child.txt'))) { throw 'child missing' }
+			Write-Output 'parent saw child'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("child.txt"), Is.True);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\nparent saw child\n"));
+			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention parent."));
+			Assert.That(normalizedOutput, Does.Not.Contain("Created 2 commits for convention parent."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child."));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeBuildsEntireConventionPlanBeforeApplyingAnyConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/good
+			- path: ./conventions/parent
+			""");
+		repo.WriteFile(".github/conventions/good/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'good.txt') -Value 'good'
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../missing
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'parent.txt') -Value 'parent'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(repo.FileExists("good.txt"), Is.False);
+			Assert.That(repo.FileExists("parent.txt"), Is.False);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Initial commit."));
+			Assert.That(result.StandardOutput, Does.Not.Contain("Convention good\n"));
+			Assert.That(result.StandardError, Does.Contain("../missing"));
 		}
 	}
 
@@ -353,12 +478,15 @@ internal sealed class ConventionExecutionTests
 			["apply"],
 			repo.RootPath,
 			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("remote-child.txt"), Is.True);
 			Assert.That(repo.FileExists("remote-parent.txt"), Is.True);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
+			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
 		}
 	}
@@ -454,6 +582,45 @@ internal sealed class ConventionExecutionTests
 				? remoteRepo.GetRepositoryUri()
 				: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.");
 
+	private static string NormalizeConventionOutput(string output)
+	{
+		var normalizedOutput = output.ReplaceLineEndings("\n");
+		var normalizedLines = new List<string>();
+
+		foreach (var line in normalizedOutput.Split('\n'))
+		{
+			if (line == "::endgroup::")
+				continue;
+
+			if (line.StartsWith("::group::", StringComparison.Ordinal))
+			{
+				normalizedLines.Add("");
+				normalizedLines.Add(line["::group::".Length..]);
+			}
+			else
+			{
+				normalizedLines.Add(line);
+			}
+		}
+
+		return string.Join("\n", normalizedLines);
+	}
+
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
 	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];
+
+	private sealed class TemporaryEnvironmentVariable : IDisposable
+	{
+		public TemporaryEnvironmentVariable(string name, string? value)
+		{
+			m_name = name;
+			m_originalValue = Environment.GetEnvironmentVariable(name);
+			Environment.SetEnvironmentVariable(name, value);
+		}
+
+		public void Dispose() => Environment.SetEnvironmentVariable(m_name, m_originalValue);
+
+		private readonly string m_name;
+		private readonly string? m_originalValue;
+	}
 }

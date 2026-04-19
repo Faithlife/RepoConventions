@@ -18,6 +18,13 @@ internal sealed class GitClient
 		return result.StandardOutput.Trim();
 	}
 
+	public async Task<string> GetMergeBaseAsync(string firstRevision, string secondRevision, CancellationToken cancellationToken)
+	{
+		var result = await RunAsync(["merge-base", firstRevision, secondRevision], cancellationToken);
+		EnsureSuccess(result, $"merge-base {firstRevision} {secondRevision}");
+		return result.StandardOutput.Trim();
+	}
+
 	public async Task<string> GetCurrentBranchAsync(CancellationToken cancellationToken)
 	{
 		var result = await RunAsync(["branch", "--show-current"], cancellationToken);
@@ -93,9 +100,12 @@ internal sealed class GitClient
 		EnsureSuccess(await RunAsync(["switch", "-c", branchName, "--track", $"origin/{branchName}"], cancellationToken), $"switch -c {branchName} --track origin/{branchName}");
 	}
 
-	public async Task PushBranchAsync(string branchName, CancellationToken cancellationToken)
+	public async Task PushBranchAsync(string branchName, bool force, CancellationToken cancellationToken)
 	{
-		EnsureSuccess(await RunAsync(["push", "-u", "origin", branchName], cancellationToken), $"push -u origin {branchName}");
+		var arguments = force
+			? new[] { "push", "--force-with-lease", "-u", "origin", branchName }
+			: ["push", "-u", "origin", branchName];
+		EnsureSuccess(await RunAsync(arguments, cancellationToken), string.Join(' ', arguments));
 	}
 
 	public static async Task<GitCommandResult> RunGitAsync(string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)

@@ -151,8 +151,8 @@ internal sealed class ConventionRunner
 	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, CancellationToken cancellationToken)
 	{
 		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
-		var payloadPath = Path.GetTempFileName();
-		await File.WriteAllTextAsync(payloadPath, JsonSerializer.Serialize(new JsonObject { ["settings"] = settings }), cancellationToken);
+		var inputPath = Path.GetTempFileName();
+		await File.WriteAllTextAsync(inputPath, JsonSerializer.Serialize(new JsonObject { ["settings"] = settings }), cancellationToken);
 
 		try
 		{
@@ -166,7 +166,7 @@ internal sealed class ConventionRunner
 			startInfo.ArgumentList.Add("-NoProfile");
 			startInfo.ArgumentList.Add("-File");
 			startInfo.ArgumentList.Add(scriptPath);
-			startInfo.ArgumentList.Add(payloadPath);
+			startInfo.ArgumentList.Add(inputPath);
 
 			using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start pwsh.");
 			var outputTask = PumpOutputAsync(process.StandardOutput, m_settings.StandardOutput);
@@ -190,7 +190,7 @@ internal sealed class ConventionRunner
 		}
 		finally
 		{
-			File.Delete(payloadPath);
+			File.Delete(inputPath);
 		}
 	}
 

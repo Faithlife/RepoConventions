@@ -33,8 +33,8 @@ This document captures the current implementation target for the CLI.
 
 - Run `convention.ps1` with `pwsh`.
 - Run the script from the root of the target Git repository.
-- Pass one argument: the path to a JSON file.
-- The JSON payload contains only `settings`.
+- Pass one argument: the path to a JSON input file.
+- The JSON input file contains only `settings`.
 - Convention script output should flow directly to the caller.
 
 ## Git Behavior

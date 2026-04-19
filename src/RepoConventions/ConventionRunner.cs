@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -224,6 +225,8 @@ internal sealed class ConventionRunner
 			return null;
 		}
 
+		var startingHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
+
 		var openPullRequests = await GetOpenPullRequestsAsync(cancellationToken);
 		var matchingPullRequests = openPullRequests
 			.Where(x => x.BaseRefName == startingBranch)
@@ -244,8 +247,20 @@ internal sealed class ConventionRunner
 			else
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(matchingPullRequest.HeadRefName, cancellationToken);
 
-			await m_settings.StandardOutput.WriteLineAsync($"Pull request is already open: {matchingPullRequest.Url}");
-			return new PullRequestPreparation(startingBranch, matchingPullRequest.HeadRefName, HasOpenPullRequest: true);
+			var existingBranchHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
+			var mergeBase = await m_settings.TargetGitClient.GetMergeBaseAsync(startingBranch, matchingPullRequest.HeadRefName, cancellationToken);
+			var shouldRestartFromBase = mergeBase != startingHead;
+			if (shouldRestartFromBase)
+				await m_settings.TargetGitClient.ResetHardAsync(startingHead, cancellationToken);
+
+			return new PullRequestPreparation(
+				startingBranch,
+				matchingPullRequest.HeadRefName,
+				matchingPullRequest.Url,
+				HasOpenPullRequest: true,
+				ExistingBranchHead: existingBranchHead,
+				ForcePushAfterUpdate: shouldRestartFromBase,
+				RestartedFromBase: shouldRestartFromBase);
 		}
 
 		var openPullRequestBranches = openPullRequests
@@ -263,7 +278,7 @@ internal sealed class ConventionRunner
 			if (!branchExists)
 			{
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
-				return new PullRequestPreparation(startingBranch, branchName, HasOpenPullRequest: false);
+				return new PullRequestPreparation(startingBranch, branchName, PullRequestUrl: null, HasOpenPullRequest: false, ExistingBranchHead: null, ForcePushAfterUpdate: false, RestartedFromBase: false);
 			}
 		}
 	}
@@ -290,10 +305,14 @@ internal sealed class ConventionRunner
 		if (newCommits.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to compare branches: {newCommits.StandardError}{newCommits.StandardOutput}");
 
-		if (newCommits.StandardOutput.Trim() == "0")
+		var pullRequestCommitCount = int.Parse(newCommits.StandardOutput.Trim(), CultureInfo.InvariantCulture);
+		if (pullRequest.HasOpenPullRequest)
+			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, cancellationToken);
+
+		if (pullRequestCommitCount == 0)
 			return 0;
 
-		await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, cancellationToken);
+		await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, force: false, cancellationToken);
 		if (pullRequest.HasOpenPullRequest)
 			return 0;
 
@@ -316,6 +335,42 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
+	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, CancellationToken cancellationToken)
+	{
+		if (pullRequest.PullRequestUrl is null)
+			throw new InvalidOperationException("Existing pull request URL was not provided.");
+
+		var currentHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
+		var commitsChanged = pullRequest.ExistingBranchHead != currentHead;
+
+		if (pullRequestCommitCount == 0)
+		{
+			var comment = BuildClosedPullRequestComment(pullRequest);
+			if (!await AddPullRequestCommentAsync(pullRequest.PullRequestUrl, comment, cancellationToken))
+				return 1;
+
+			if (!await ClosePullRequestAsync(pullRequest.PullRequestUrl, cancellationToken))
+				return 1;
+
+			await m_settings.StandardOutput.WriteLineAsync($"Closed pull request: {pullRequest.PullRequestUrl}");
+			return 0;
+		}
+
+		if (commitsChanged)
+		{
+			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, cancellationToken);
+			var comment = BuildUpdatedPullRequestComment(pullRequest);
+			if (!await AddPullRequestCommentAsync(pullRequest.PullRequestUrl, comment, cancellationToken))
+				return 1;
+
+			await m_settings.StandardOutput.WriteLineAsync($"Updated pull request: {pullRequest.PullRequestUrl}");
+			return 0;
+		}
+
+		await m_settings.StandardOutput.WriteLineAsync($"Pull request: {pullRequest.PullRequestUrl}");
+		return 0;
+	}
+
 	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
 	{
 		var lines = new List<string>
@@ -325,6 +380,36 @@ internal sealed class ConventionRunner
 
 		lines.AddRange(appliedConventions.Select(convention => $"- {FormatAppliedConvention(convention, targetRepositoryUrl, branchName)}"));
 		return string.Join(Environment.NewLine, lines);
+	}
+
+	private static string BuildUpdatedPullRequestComment(PullRequestPreparation pullRequest) =>
+		pullRequest.RestartedFromBase
+			? $"repo-conventions rebuilt this pull request from the latest {pullRequest.StartingBranch} and force-pushed the updated convention commits."
+			: "repo-conventions added new convention commits to this pull request.";
+
+	private static string BuildClosedPullRequestComment(PullRequestPreparation pullRequest) =>
+		pullRequest.RestartedFromBase
+			? $"repo-conventions rebuilt this pull request from the latest {pullRequest.StartingBranch}. No convention commits remain, so this pull request is being closed."
+			: "repo-conventions re-ran the conventions. No convention commits remain, so this pull request is being closed.";
+
+	private async Task<bool> AddPullRequestCommentAsync(string pullRequestUrl, string body, CancellationToken cancellationToken)
+	{
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "comment", pullRequestUrl, "--body", body], cancellationToken);
+		if (result.ExitCode == 0)
+			return true;
+
+		await m_settings.StandardError.WriteLineAsync($"Failed to add pull request comment: {result.StandardError}{result.StandardOutput}");
+		return false;
+	}
+
+	private async Task<bool> ClosePullRequestAsync(string pullRequestUrl, CancellationToken cancellationToken)
+	{
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "close", pullRequestUrl], cancellationToken);
+		if (result.ExitCode == 0)
+			return true;
+
+		await m_settings.StandardError.WriteLineAsync($"Failed to close pull request: {result.StandardError}{result.StandardOutput}");
+		return false;
 	}
 
 	private static async Task PumpOutputAsync(StreamReader reader, TextWriter writer)
@@ -462,7 +547,7 @@ internal sealed class ConventionRunner
 
 	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName);
 
-	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, bool HasOpenPullRequest);
+	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
 	private sealed record AppliedConvention(string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
 

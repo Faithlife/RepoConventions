@@ -109,7 +109,18 @@ internal sealed class ConventionRunner
 
 	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, string headBeforeConvention, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
-		var openedGitHubActionsGroup = await WriteConventionStartAsync(FormatApplyingConventionName(plannedConvention));
+		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
+		var openedGitHubActionsGroup = IsRunningInGitHubActions();
+		if (openedGitHubActionsGroup)
+		{
+			await m_settings.StandardOutput.WriteLineAsync($"::group::{startMessage}");
+		}
+		else
+		{
+			await m_settings.StandardOutput.WriteLineAsync();
+			await m_settings.StandardOutput.WriteLineAsync(startMessage);
+		}
+
 		try
 		{
 			var conventionScriptPath = Path.Combine(plannedConvention.ResolvedConvention.DirectoryPath, "convention.ps1");
@@ -415,20 +426,6 @@ internal sealed class ConventionRunner
 
 		lines.AddRange(appliedConventions.Select(convention => $"- {FormatAppliedConvention(convention, targetRepositoryUrl, branchName)}"));
 		return string.Join(Environment.NewLine, lines);
-	}
-
-	private async Task<bool> WriteConventionStartAsync(string conventionName)
-	{
-		var startMessage = $"Convention {conventionName}";
-		if (IsRunningInGitHubActions())
-		{
-			await m_settings.StandardOutput.WriteLineAsync($"::group::{startMessage}");
-			return true;
-		}
-
-		await m_settings.StandardOutput.WriteLineAsync();
-		await m_settings.StandardOutput.WriteLineAsync(startMessage);
-		return false;
 	}
 
 	private static string FormatApplyingConventionName(PlannedConvention plannedConvention) =>

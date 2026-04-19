@@ -33,12 +33,13 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
-			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
+			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention add-file."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
 		}
@@ -90,7 +91,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
-		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -102,9 +103,11 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	[NonParallelizable]
 	public async Task CommitModeWritesBlankLineBeforeStartMessageWithoutGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", null);
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -255,13 +258,14 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("child.txt"), Is.True);
 			Assert.That(repo.FileExists("parent.txt"), Is.True);
-			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
 		}
@@ -291,7 +295,7 @@ internal sealed class ConventionExecutionTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
-		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -474,13 +478,14 @@ internal sealed class ConventionExecutionTests
 			["apply"],
 			repo.RootPath,
 			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("remote-child.txt"), Is.True);
 			Assert.That(repo.FileExists("remote-parent.txt"), Is.True);
-			Assert.That(result.StandardOutput.ReplaceLineEndings("\n"), Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
 		}
@@ -576,6 +581,30 @@ internal sealed class ConventionExecutionTests
 			request is { Owner: "local-test", Repository: "remote-conventions" }
 				? remoteRepo.GetRepositoryUri()
 				: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.");
+
+	private static string NormalizeConventionOutput(string output)
+	{
+		var normalizedOutput = output.ReplaceLineEndings("\n");
+		var normalizedLines = new List<string>();
+
+		foreach (var line in normalizedOutput.Split('\n'))
+		{
+			if (line == "::endgroup::")
+				continue;
+
+			if (line.StartsWith("::group::", StringComparison.Ordinal))
+			{
+				normalizedLines.Add("");
+				normalizedLines.Add(line["::group::".Length..]);
+			}
+			else
+			{
+				normalizedLines.Add(line);
+			}
+		}
+
+		return string.Join("\n", normalizedLines);
+	}
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
 	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];

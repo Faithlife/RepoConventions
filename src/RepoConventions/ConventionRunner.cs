@@ -24,6 +24,8 @@ internal sealed class ConventionRunner
 		if (!planSucceeded)
 			return 1;
 
+		await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
+
 		var appliedConventions = new List<AppliedConvention>();
 		var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
 		if (!success)

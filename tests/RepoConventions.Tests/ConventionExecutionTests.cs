@@ -39,6 +39,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(result.StandardOutput, Does.StartWith("Applying 1 conventions..." + Environment.NewLine));
 			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention add-file."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
@@ -125,7 +126,7 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nscript output\nCreated 1 commit for convention add-file."));
+			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n\nConvention add-file\nscript output\nCreated 1 commit for convention add-file."));
 			Assert.That(normalizedOutput, Does.Not.Contain("::group::"));
 			Assert.That(normalizedOutput, Does.Not.Contain("::endgroup::"));
 		}
@@ -154,7 +155,7 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(normalizedOutput, Does.Contain("::group::Convention add-file\nscript output\nCreated 1 commit for convention add-file.\n::endgroup::"));
+			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n::group::Convention add-file\nscript output\nCreated 1 commit for convention add-file.\n::endgroup::"));
 			Assert.That(normalizedOutput, Does.Not.Contain("\nConvention add-file\nscript output"));
 		}
 	}

@@ -294,8 +294,14 @@ internal sealed class ConventionRunner
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(matchingPullRequest.HeadRefName, cancellationToken);
 
 			var existingBranchHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
-			var mergeBase = await m_settings.TargetGitClient.GetMergeBaseAsync(startingBranch, matchingPullRequest.HeadRefName, cancellationToken);
-			var shouldRestartFromBase = mergeBase != startingHead;
+			var mergeBaseResult = await m_settings.TargetGitClient.TryGetMergeBaseAsync(startingBranch, matchingPullRequest.HeadRefName, cancellationToken);
+			if (!mergeBaseResult.Succeeded)
+			{
+				await m_settings.StandardError.WriteLineAsync(BuildMergeBaseFailureMessage(startingBranch, matchingPullRequest.HeadRefName, mergeBaseResult));
+				return null;
+			}
+
+			var shouldRestartFromBase = mergeBaseResult.MergeBase != startingHead;
 			if (shouldRestartFromBase)
 				await m_settings.TargetGitClient.ResetHardAsync(startingHead, cancellationToken);
 
@@ -440,6 +446,31 @@ internal sealed class ConventionRunner
 		pullRequest.RestartedFromBase
 			? $"repo-conventions rebuilt this pull request from the latest {pullRequest.StartingBranch} and force-pushed the updated convention commits."
 			: "repo-conventions added new convention commits to this pull request.";
+
+	private static string BuildMergeBaseFailureMessage(string startingBranch, string pullRequestBranch, GitMergeBaseResult mergeBaseResult)
+	{
+		var lines = new List<string>
+		{
+			$"repo-conventions could not compare '{startingBranch}' with existing pull request branch '{pullRequestBranch}'.",
+			$"git merge-base {startingBranch} {pullRequestBranch} failed.",
+		};
+
+		var gitOutput = string.Concat(mergeBaseResult.CommandResult.StandardError, mergeBaseResult.CommandResult.StandardOutput).Trim();
+		if (!string.IsNullOrEmpty(gitOutput))
+			lines.Add($"git output: {gitOutput}");
+
+		if (mergeBaseResult.IsShallowRepository)
+		{
+			lines.Add("This repository appears to be a shallow clone.");
+			lines.Add("Suggested fixes: use actions/checkout with fetch-depth: 0, or run 'git fetch --prune --unshallow origin' before 'repo-conventions apply --open-pr'.");
+		}
+		else
+		{
+			lines.Add("Suggested fixes: fetch enough history for both branches, fetch the existing repo-conventions branch locally, or delete any stale local repo-conventions branch before rerunning.");
+		}
+
+		return string.Join(Environment.NewLine, lines);
+	}
 
 	private static string BuildClosedPullRequestComment(PullRequestPreparation pullRequest) =>
 		pullRequest.RestartedFromBase

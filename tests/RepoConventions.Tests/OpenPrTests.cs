@@ -268,6 +268,36 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeReportsHelpfulMessageWhenMergeBaseCannotBeComputed()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main");
+		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewOrphanBranchAsync("repo-conventions");
+		repo.WriteFile("orphan.txt", "orphan");
+		await repo.CommitAllAsync("Unrelated orphan commit.");
+		await repo.SwitchToBranchAsync("main");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("could not compare 'main' with existing pull request branch 'repo-conventions'"));
+			Assert.That(result.StandardError, Does.Contain("git merge-base main repo-conventions failed."));
+			Assert.That(result.StandardError, Does.Contain("Suggested fixes: fetch enough history for both branches"));
+			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeUpdatesExistingPullRequestBranchWithoutCreatingAnotherPullRequest()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

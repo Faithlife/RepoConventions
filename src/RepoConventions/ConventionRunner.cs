@@ -19,8 +19,13 @@ internal sealed class ConventionRunner
 				return 1;
 		}
 
+		var plannedConventions = new List<PlannedConvention>();
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), plannedConventions, sourceConventionName: null, cancellationToken);
+		if (!planSucceeded)
+			return 1;
+
 		var appliedConventions = new List<AppliedConvention>();
-		var success = await ApplyConfigurationFileAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), appliedConventions, cancellationToken);
+		var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
 		if (!success)
 			return 1;
 
@@ -30,21 +35,21 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> ApplyConfigurationFileAsync(string configPath, HashSet<string> activeConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		var references = ConventionConfiguration.Load(configPath);
 		var containingDirectory = Path.GetDirectoryName(configPath)!;
 
 		foreach (var reference in references)
 		{
-			if (!await ApplyConventionReferenceAsync(reference, containingDirectory, activeConventions, appliedConventions, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, containingDirectory, activeConventions, plannedConventions, sourceConventionName, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> ApplyConventionReferenceAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		var resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		if (activeConventions.Contains(resolvedConvention.Identity))
@@ -53,52 +58,82 @@ internal sealed class ConventionRunner
 			return true;
 		}
 
-		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
+		if (!Directory.Exists(resolvedConvention.DirectoryPath))
+		{
+			await m_settings.StandardError.WriteLineAsync($"Convention '{reference.Path}' directory '{resolvedConvention.DirectoryPath}' was not found.");
+			return false;
+		}
+
+		var conventionConfigPath = Path.Combine(resolvedConvention.DirectoryPath, "convention.yml");
+		var conventionScriptPath = Path.Combine(resolvedConvention.DirectoryPath, "convention.ps1");
+		if (!File.Exists(conventionConfigPath) && !File.Exists(conventionScriptPath))
+		{
+			await m_settings.StandardError.WriteLineAsync($"Convention '{reference.Path}' did not contain convention.yml or convention.ps1.");
+			return false;
+		}
+
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
-			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: applying...");
-
-			if (!Directory.Exists(resolvedConvention.DirectoryPath))
-			{
-				await m_settings.StandardError.WriteLineAsync($"Convention '{reference.Path}' directory '{resolvedConvention.DirectoryPath}' was not found.");
-				return false;
-			}
-
-			var conventionConfigPath = Path.Combine(resolvedConvention.DirectoryPath, "convention.yml");
-			var conventionScriptPath = Path.Combine(resolvedConvention.DirectoryPath, "convention.ps1");
-			if (!File.Exists(conventionConfigPath) && !File.Exists(conventionScriptPath))
-			{
-				await m_settings.StandardError.WriteLineAsync($"Convention '{reference.Path}' did not contain convention.yml or convention.ps1.");
-				return false;
-			}
+			var headSnapshotIndex = plannedConventions.Count;
 
 			if (File.Exists(conventionConfigPath))
 			{
-				if (!await ApplyConfigurationFileAsync(conventionConfigPath, activeConventions, appliedConventions, cancellationToken))
+				if (!await BuildConventionPlanAsync(conventionConfigPath, activeConventions, plannedConventions, resolvedConvention.DisplayName, cancellationToken))
 					return false;
 			}
 
-			if (File.Exists(conventionScriptPath))
-			{
-				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, reference.Settings, resolvedConvention.DisplayName, cancellationToken);
-				if (!scriptResult.Succeeded)
-					return false;
-			}
-
-			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
-			appliedConventions.Add(new AppliedConvention(resolvedConvention.DisplayName, resolvedConvention.TargetRepositoryRelativePath, resolvedConvention.RemoteDirectory));
-			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
-			{
-				0 => $"Convention {resolvedConvention.DisplayName}: no changes.",
-				1 => $"Convention {resolvedConvention.DisplayName}: created 1 commit.",
-				_ => $"Convention {resolvedConvention.DisplayName}: created {createdCommitCount} commits.",
-			});
+			plannedConventions.Add(new PlannedConvention(resolvedConvention, reference.Settings, sourceConventionName, headSnapshotIndex));
 			return true;
 		}
 		finally
 		{
 			activeConventions.Remove(resolvedConvention.Identity);
+		}
+	}
+
+	private async Task<bool> ApplyConventionPlanAsync(IReadOnlyList<PlannedConvention> plannedConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	{
+		var headSnapshots = new List<string>(plannedConventions.Count);
+		for (var index = 0; index < plannedConventions.Count; index++)
+		{
+			headSnapshots.Add(await m_settings.TargetGitClient.GetHeadAsync(cancellationToken));
+			var plannedConvention = plannedConventions[index];
+			var headBeforeConvention = headSnapshots[plannedConvention.HeadSnapshotIndex];
+			if (!await ApplyPlannedConventionAsync(plannedConvention, headBeforeConvention, appliedConventions, cancellationToken))
+				return false;
+		}
+
+		return true;
+	}
+
+	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, string headBeforeConvention, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	{
+		var openedGitHubActionsGroup = await WriteConventionStartAsync(FormatApplyingConventionName(plannedConvention));
+		try
+		{
+			var conventionScriptPath = Path.Combine(plannedConvention.ResolvedConvention.DirectoryPath, "convention.ps1");
+			if (File.Exists(conventionScriptPath))
+			{
+				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, plannedConvention.Settings, plannedConvention.ResolvedConvention.DisplayName, cancellationToken);
+				if (!scriptResult.Succeeded)
+					return false;
+			}
+
+			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
+			appliedConventions.Add(new AppliedConvention(plannedConvention.ResolvedConvention.DisplayName, plannedConvention.ResolvedConvention.TargetRepositoryRelativePath, plannedConvention.ResolvedConvention.RemoteDirectory));
+			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
+			{
+				0 => $"Convention {plannedConvention.ResolvedConvention.DisplayName}: no changes.",
+				1 => $"Convention {plannedConvention.ResolvedConvention.DisplayName}: created 1 commit.",
+				_ => $"Convention {plannedConvention.ResolvedConvention.DisplayName}: created {createdCommitCount} commits.",
+			});
+			return true;
+		}
+		finally
+		{
+			if (openedGitHubActionsGroup)
+				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
 		}
 	}
 
@@ -382,6 +417,28 @@ internal sealed class ConventionRunner
 		return string.Join(Environment.NewLine, lines);
 	}
 
+	private async Task<bool> WriteConventionStartAsync(string conventionName)
+	{
+		var startMessage = $"Convention {conventionName}";
+		if (IsRunningInGitHubActions())
+		{
+			await m_settings.StandardOutput.WriteLineAsync($"::group::{startMessage}");
+			return true;
+		}
+
+		await m_settings.StandardOutput.WriteLineAsync();
+		await m_settings.StandardOutput.WriteLineAsync(startMessage);
+		return false;
+	}
+
+	private static string FormatApplyingConventionName(PlannedConvention plannedConvention) =>
+		plannedConvention.SourceConventionName is null
+			? plannedConvention.ResolvedConvention.DisplayName
+			: $"{plannedConvention.ResolvedConvention.DisplayName} (from {plannedConvention.SourceConventionName})";
+
+	private static bool IsRunningInGitHubActions() =>
+		string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
+
 	private static string BuildUpdatedPullRequestComment(PullRequestPreparation pullRequest) =>
 		pullRequest.RestartedFromBase
 			? $"repo-conventions rebuilt this pull request from the latest {pullRequest.StartingBranch} and force-pushed the updated convention commits."
@@ -548,6 +605,8 @@ internal sealed class ConventionRunner
 	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName);
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
+
+	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, string? SourceConventionName, int HeadSnapshotIndex);
 
 	private sealed record AppliedConvention(string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
 

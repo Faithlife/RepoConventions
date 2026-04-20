@@ -236,8 +236,7 @@ internal sealed class ConventionRunner
 		if (m_remoteCloneCache.TryGetValue(remotePath.Identity, out var existingPath))
 			return existingPath;
 
-		// Keep temp clone roots short to preserve path headroom on Windows.
-		var clonePath = Path.Combine(Path.GetTempPath(), $"rc-r-{Guid.NewGuid():N}");
+		var clonePath = TemporaryDirectoryPath.Create();
 		Directory.CreateDirectory(clonePath);
 		var repositoryUrl = GetRemoteRepositoryUrl(remotePath);
 

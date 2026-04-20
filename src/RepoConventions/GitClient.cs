@@ -18,11 +18,15 @@ internal sealed class GitClient
 		return result.StandardOutput.Trim();
 	}
 
-	public async Task<string> GetMergeBaseAsync(string firstRevision, string secondRevision, CancellationToken cancellationToken)
+	public async Task<GitMergeBaseResult> TryGetMergeBaseAsync(string firstRevision, string secondRevision, CancellationToken cancellationToken)
 	{
 		var result = await RunAsync(["merge-base", firstRevision, secondRevision], cancellationToken);
-		EnsureSuccess(result, $"merge-base {firstRevision} {secondRevision}");
-		return result.StandardOutput.Trim();
+		if (result.ExitCode == 0)
+			return GitMergeBaseResult.Success(result.StandardOutput.Trim(), result);
+
+		var shallowResult = await RunAsync(["rev-parse", "--is-shallow-repository"], cancellationToken);
+		var isShallowRepository = shallowResult.ExitCode == 0 && string.Equals(shallowResult.StandardOutput.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+		return GitMergeBaseResult.Failure(result, isShallowRepository);
 	}
 
 	public async Task<string> GetCurrentBranchAsync(CancellationToken cancellationToken)

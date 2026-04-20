@@ -123,6 +123,43 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeUsesNestedBulletsForNestedConventionsInPullRequestBody()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'parent.txt') -Value 'parent'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var body = fakeGh.LastInvocation("pr", "create").Last();
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(body, Does.Contain("- [parent](https://github.com/example/repo/tree/repo-conventions/.github/conventions/parent)"));
+			Assert.That(body, Does.Contain("\n  - [child](https://github.com/example/repo/tree/repo-conventions/.github/conventions/child)"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeDoesNotPushOrCreatePullRequestWhenNoChangesAreMade()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -198,6 +235,7 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions-2"));
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Is.EqualTo("No convention commits remain."));
 			Assert.That(fakeGh.CountCalls("pr", "close"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}
@@ -268,12 +306,42 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
-	public async Task OpenPrModeUpdatesExistingPullRequestBranchWithoutCreatingAnotherPullRequest()
+	public async Task OpenPrModeReportsHelpfulMessageWhenMergeBaseCannotBeComputed()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
 		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main");
+		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewOrphanBranchAsync("repo-conventions");
+		repo.WriteFile("orphan.txt", "orphan");
+		await repo.CommitAllAsync("Unrelated orphan commit.");
+		await repo.SwitchToBranchAsync("main");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("could not compare 'main' with existing pull request branch 'repo-conventions'"));
+			Assert.That(result.StandardError, Does.Contain("git merge-base main repo-conventions failed."));
+			Assert.That(result.StandardError, Does.Contain("Suggested fixes: fetch enough history for both branches"));
+			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeUpdatesExistingPullRequestBranchWithoutCreatingAnotherPullRequest()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: BuildSingleConventionPullRequestBody("repo-conventions", "add-file", ".github/conventions/add-file"));
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -301,8 +369,8 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
-			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
-			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Does.Contain("added new convention commits"));
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.Zero);
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}
 	}
@@ -313,7 +381,7 @@ internal sealed class OpenPrTests
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
-		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main");
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: "Outdated pull request body");
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -344,10 +412,45 @@ internal sealed class OpenPrTests
 			Assert.That(result.StandardOutput, Does.Contain("Updated pull request: https://github.com/example/repo/pull/1"));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(repo.FileExists("base.txt"), Is.True);
-			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
-			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Does.Contain("force-pushed the updated convention commits"));
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "edit").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
 			Assert.That(fakeGh.CountCalls("pr", "close"), Is.Zero);
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeUpdatesExistingPullRequestBodyWhenItChanges()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: "Old body");
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewBranchAsync("repo-conventions");
+		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
+		await repo.SwitchToBranchAsync("main");
+		await repo.DeleteBranchAsync("repo-conventions");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "edit").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
 		}
 	}
 
@@ -379,12 +482,18 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Is.EqualTo("No convention commits remain."));
 			Assert.That(fakeGh.CountCalls("pr", "close"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}
 	}
 
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
+
+	private static string BuildSingleConventionPullRequestBody(string branchName, string conventionName, string conventionPath) => string.Join(
+		Environment.NewLine,
+		$"[Conventions](https://github.com/example/repo/blob/{branchName}/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
+		$"- [{conventionName}](https://github.com/example/repo/tree/{branchName}/{conventionPath})");
 
 	private static class CliInvocation
 	{
@@ -405,6 +514,8 @@ internal sealed class OpenPrTests
 
 		public int PrCommentExitCode { get; set; }
 
+		public int PrEditExitCode { get; set; }
+
 		public int PrCloseExitCode { get; set; }
 
 		public int PrCreateExitCode { get; set; }
@@ -421,7 +532,7 @@ internal sealed class OpenPrTests
 
 		public string[] LastInvocation(string command, string subcommand) => Invocations.Last(x => x.Length >= 2 && x[0] == command && x[1] == subcommand);
 
-		public void AddOpenPullRequest(string url, string headRefName, string baseRefName) => OpenPullRequests.Add(new OpenPullRequest(url, headRefName, baseRefName));
+		public void AddOpenPullRequest(string url, string headRefName, string baseRefName, string body = "") => OpenPullRequests.Add(new OpenPullRequest(url, headRefName, baseRefName, body));
 
 		public Task<ExternalCommandResult> RunAsync(ExternalCommandRequest request, CancellationToken cancellationToken)
 		{
@@ -440,6 +551,9 @@ internal sealed class OpenPrTests
 			if (arguments is ["pr", "comment", ..])
 				return Task.FromResult(new ExternalCommandResult(PrCommentExitCode, "", PrCommentExitCode == 0 ? "" : "comment failed"));
 
+			if (arguments is ["pr", "edit", ..])
+				return Task.FromResult(new ExternalCommandResult(PrEditExitCode, "", PrEditExitCode == 0 ? "" : "edit failed"));
+
 			if (arguments is ["pr", "close", ..])
 				return Task.FromResult(new ExternalCommandResult(PrCloseExitCode, "", PrCloseExitCode == 0 ? "" : "close failed"));
 
@@ -449,7 +563,7 @@ internal sealed class OpenPrTests
 			return Task.FromResult(new ExternalCommandResult(1, "", $"Unexpected gh arguments: {string.Join(' ', arguments)}"));
 		}
 
-		private sealed record OpenPullRequest(string Url, string HeadRefName, string BaseRefName);
+		private sealed record OpenPullRequest(string Url, string HeadRefName, string BaseRefName, string Body);
 
 		private static readonly JsonSerializerOptions s_jsonSerializerOptions = new()
 		{

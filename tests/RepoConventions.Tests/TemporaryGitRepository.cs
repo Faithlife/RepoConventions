@@ -155,6 +155,12 @@ internal sealed class TemporaryGitRepository : IDisposable
 		await RunGitAsync(RootPath, ["switch", "-c", branchName]);
 	}
 
+	public async Task SwitchToNewOrphanBranchAsync(string branchName)
+	{
+		VerifyNotBare();
+		await RunGitAsync(RootPath, ["switch", "--orphan", branchName]);
+	}
+
 	public void Dispose()
 	{
 		if (!Directory.Exists(RootPath))

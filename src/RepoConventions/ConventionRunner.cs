@@ -470,10 +470,11 @@ internal sealed class ConventionRunner
 		return string.Join(Environment.NewLine, lines);
 	}
 
-	private static string BuildClosedPullRequestComment(PullRequestPreparation pullRequest) =>
-		pullRequest.RestartedFromBase
-			? $"repo-conventions rebuilt this pull request from the latest {pullRequest.StartingBranch}. No convention commits remain, so this pull request is being closed."
-			: "repo-conventions re-ran the conventions. No convention commits remain, so this pull request is being closed.";
+	private static string BuildClosedPullRequestComment(PullRequestPreparation pullRequest)
+	{
+		_ = pullRequest;
+		return "No convention commits remain.";
+	}
 
 	private async Task<bool> AddPullRequestCommentAsync(string pullRequestUrl, string body, CancellationToken cancellationToken)
 	{

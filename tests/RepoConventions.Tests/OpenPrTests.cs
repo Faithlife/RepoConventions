@@ -198,6 +198,7 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions-2"));
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Is.EqualTo("No convention commits remain."));
 			Assert.That(fakeGh.CountCalls("pr", "close"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}
@@ -409,6 +410,7 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Is.EqualTo("No convention commits remain."));
 			Assert.That(fakeGh.CountCalls("pr", "close"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}

@@ -64,10 +64,25 @@ internal sealed class GitClient
 		return !string.IsNullOrWhiteSpace(result.StandardOutput);
 	}
 
-	public async Task CommitAllAsync(string message, CancellationToken cancellationToken)
+	public async Task<bool> HasStagedChangesAsync(CancellationToken cancellationToken)
+	{
+		var result = await RunAsync(["diff", "--cached", "--quiet", "--exit-code"], cancellationToken);
+		return result.ExitCode switch
+		{
+			0 => false,
+			1 => true,
+			_ => throw new InvalidOperationException($"git diff --cached --quiet --exit-code failed: {result.StandardError}{result.StandardOutput}"),
+		};
+	}
+
+	public async Task<bool> CommitAllAsync(string message, CancellationToken cancellationToken)
 	{
 		EnsureSuccess(await RunAsync(["add", "-A"], cancellationToken), "add -A");
+		if (!await HasStagedChangesAsync(cancellationToken))
+			return false;
+
 		EnsureSuccess(await RunAsync(["commit", "-m", message], cancellationToken), $"commit -m {message}");
+		return true;
 	}
 
 	public async Task<int> CountCommitsSinceAsync(string commit, CancellationToken cancellationToken)

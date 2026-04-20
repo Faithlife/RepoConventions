@@ -130,14 +130,12 @@ internal sealed class ConventionRunner
 
 			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
 			appliedConventions.Add(new AppliedConvention(plannedConvention.ResolvedConvention.DisplayName, plannedConvention.ResolvedConvention.TargetRepositoryRelativePath, plannedConvention.ResolvedConvention.RemoteDirectory));
-			if (createdCommitCount > 0)
+			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
 			{
-				await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
-				{
-					1 => $"Created 1 commit for convention {plannedConvention.ResolvedConvention.DisplayName}.",
-					_ => $"Created {createdCommitCount} commits for convention {plannedConvention.ResolvedConvention.DisplayName}.",
-				});
-			}
+				0 => $"No changes for convention {plannedConvention.ResolvedConvention.DisplayName}.",
+				1 => $"Created 1 commit for convention {plannedConvention.ResolvedConvention.DisplayName}.",
+				_ => $"Created {createdCommitCount} commits for convention {plannedConvention.ResolvedConvention.DisplayName}.",
+			});
 
 			return true;
 		}

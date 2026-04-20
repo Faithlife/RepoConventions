@@ -78,7 +78,7 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	public async Task CommitModeDoesNotReportNoChangesForConventionThatCreatesNoCommit()
+	public async Task CommitModeReportsNoChangesForConventionThatCreatesNoCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		repo.WriteFile(".github/conventions.yml", """
@@ -98,7 +98,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(normalizedOutput, Does.Contain("\nConvention no-op\nscript output\n"));
-			Assert.That(normalizedOutput, Does.Not.Contain("no changes"));
+			Assert.That(normalizedOutput, Does.Contain("No changes for convention no-op."));
 			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention no-op."));
 		}
 	}
@@ -303,6 +303,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("child.txt"), Is.True);
 			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\nparent saw child\n"));
+			Assert.That(normalizedOutput, Does.Contain("No changes for convention parent."));
 			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention parent."));
 			Assert.That(normalizedOutput, Does.Not.Contain("Created 2 commits for convention parent."));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child."));

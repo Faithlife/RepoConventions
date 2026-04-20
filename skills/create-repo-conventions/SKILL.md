@@ -63,6 +63,7 @@ conventions:
 - Prefer deterministic file writes and stable ordering so reruns do not churn diffs.
 - Avoid interactive prompts, editor launches, or hidden machine-local dependencies.
 - Emit focused output that explains what the convention changed or why it failed.
+- Convention scripts are encouraged to create their own informative commits when the convention naturally consists of multiple meaningful steps or when the resulting history matters for follow-up tasks such as blame-ignore files.
 
 Minimal pattern:
 
@@ -81,7 +82,7 @@ Don't bother reading the input file if your convention doesn't have settings, bu
 
 ## Behavioral Constraints
 
-- On success, repo-conventions will auto-commit tracked or untracked changes left behind by the executable convention.
+- On success, if the script does not create commits itself, repo-conventions will auto-commit tracked or untracked changes left behind by the executable convention.
 - On failure, repo-conventions will hard-reset the target repository back to the pre-convention HEAD.
 - Do not create formatting-only churn unless formatting is the actual purpose of the convention.
 

@@ -395,7 +395,7 @@ internal sealed class ConventionRunner
 
 		if (pullRequestCommitCount == 0)
 		{
-			var comment = BuildClosedPullRequestComment(pullRequest);
+			var comment = "No convention commits remain.";
 			if (!await AddPullRequestCommentAsync(pullRequest.PullRequestUrl, comment, cancellationToken))
 				return 1;
 
@@ -468,12 +468,6 @@ internal sealed class ConventionRunner
 		}
 
 		return string.Join(Environment.NewLine, lines);
-	}
-
-	private static string BuildClosedPullRequestComment(PullRequestPreparation pullRequest)
-	{
-		_ = pullRequest;
-		return "No convention commits remain.";
 	}
 
 	private async Task<bool> AddPullRequestCommentAsync(string pullRequestUrl, string body, CancellationToken cancellationToken)

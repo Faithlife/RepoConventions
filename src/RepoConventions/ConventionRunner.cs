@@ -20,7 +20,7 @@ internal sealed class ConventionRunner
 		}
 
 		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), plannedConventions, sourceConventionName: null, cancellationToken);
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), plannedConventions, sourceConventionIdentity: null, sourceConventionName: null, cancellationToken);
 		if (!planSucceeded)
 			return 1;
 
@@ -37,21 +37,21 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> BuildConventionPlanAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		var references = ConventionConfiguration.Load(configPath);
 		var containingDirectory = Path.GetDirectoryName(configPath)!;
 
 		foreach (var reference in references)
 		{
-			if (!await AddConventionToPlanAsync(reference, containingDirectory, activeConventions, plannedConventions, sourceConventionName, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, containingDirectory, activeConventions, plannedConventions, sourceConventionIdentity, sourceConventionName, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		var resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		if (activeConventions.Contains(resolvedConvention.Identity))
@@ -79,11 +79,11 @@ internal sealed class ConventionRunner
 		{
 			if (File.Exists(conventionConfigPath))
 			{
-				if (!await BuildConventionPlanAsync(conventionConfigPath, activeConventions, plannedConventions, resolvedConvention.DisplayName, cancellationToken))
+				if (!await BuildConventionPlanAsync(conventionConfigPath, activeConventions, plannedConventions, resolvedConvention.Identity, resolvedConvention.DisplayName, cancellationToken))
 					return false;
 			}
 
-			plannedConventions.Add(new PlannedConvention(resolvedConvention, reference.Settings, sourceConventionName));
+			plannedConventions.Add(new PlannedConvention(resolvedConvention, reference.Settings, sourceConventionIdentity, sourceConventionName));
 			return true;
 		}
 		finally
@@ -129,7 +129,12 @@ internal sealed class ConventionRunner
 			}
 
 			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
-			appliedConventions.Add(new AppliedConvention(plannedConvention.ResolvedConvention.DisplayName, plannedConvention.ResolvedConvention.TargetRepositoryRelativePath, plannedConvention.ResolvedConvention.RemoteDirectory));
+			appliedConventions.Add(new AppliedConvention(
+				plannedConvention.ResolvedConvention.Identity,
+				plannedConvention.ResolvedConvention.DisplayName,
+				plannedConvention.ResolvedConvention.TargetRepositoryRelativePath,
+				plannedConvention.ResolvedConvention.RemoteDirectory,
+				plannedConvention.SourceConventionIdentity));
 			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
 			{
 				0 => $"No changes for convention {plannedConvention.ResolvedConvention.DisplayName}.",
@@ -307,6 +312,7 @@ internal sealed class ConventionRunner
 				startingBranch,
 				matchingPullRequest.HeadRefName,
 				matchingPullRequest.Url,
+				matchingPullRequest.Body,
 				HasOpenPullRequest: true,
 				ExistingBranchHead: existingBranchHead,
 				ForcePushAfterUpdate: shouldRestartFromBase,
@@ -328,14 +334,14 @@ internal sealed class ConventionRunner
 			if (!branchExists)
 			{
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
-				return new PullRequestPreparation(startingBranch, branchName, PullRequestUrl: null, HasOpenPullRequest: false, ExistingBranchHead: null, ForcePushAfterUpdate: false, RestartedFromBase: false);
+				return new PullRequestPreparation(startingBranch, branchName, PullRequestUrl: null, ExistingPullRequestBody: "", HasOpenPullRequest: false, ExistingBranchHead: null, ForcePushAfterUpdate: false, RestartedFromBase: false);
 			}
 		}
 	}
 
 	private async Task<IReadOnlyList<GitHubPullRequest>> GetOpenPullRequestsAsync(CancellationToken cancellationToken)
 	{
-		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--json", "url,headRefName,baseRefName"], cancellationToken);
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--json", "url,headRefName,baseRefName,body"], cancellationToken);
 		if (result.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to query pull requests with gh: {result.StandardError}{result.StandardOutput}");
 
@@ -356,8 +362,10 @@ internal sealed class ConventionRunner
 			throw new InvalidOperationException($"Failed to compare branches: {newCommits.StandardError}{newCommits.StandardOutput}");
 
 		var pullRequestCommitCount = int.Parse(newCommits.StandardOutput.Trim(), CultureInfo.InvariantCulture);
+		var targetRepositoryUrl = await GetTargetRepositoryUrlAsync(cancellationToken);
+		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName);
 		if (pullRequest.HasOpenPullRequest)
-			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, cancellationToken);
+			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, body, cancellationToken);
 
 		if (pullRequestCommitCount == 0)
 			return 0;
@@ -366,8 +374,6 @@ internal sealed class ConventionRunner
 		if (pullRequest.HasOpenPullRequest)
 			return 0;
 
-		var targetRepositoryUrl = await GetTargetRepositoryUrlAsync(cancellationToken);
-		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName);
 		await m_settings.StandardOutput.WriteLineAsync($"Opening pull request from {pullRequest.BranchName} to {pullRequest.StartingBranch}...");
 		var createResult = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "create", "--base", pullRequest.StartingBranch, "--head", pullRequest.BranchName, "--title", "Apply repository conventions.", "--body", body], cancellationToken);
 		if (createResult.ExitCode != 0)
@@ -385,13 +391,14 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, CancellationToken cancellationToken)
+	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, string pullRequestBody, CancellationToken cancellationToken)
 	{
 		if (pullRequest.PullRequestUrl is null)
 			throw new InvalidOperationException("Existing pull request URL was not provided.");
 
 		var currentHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		var commitsChanged = pullRequest.ExistingBranchHead != currentHead;
+		var bodyChanged = pullRequest.ExistingPullRequestBody != pullRequestBody;
 
 		if (pullRequestCommitCount == 0)
 		{
@@ -407,12 +414,16 @@ internal sealed class ConventionRunner
 		}
 
 		if (commitsChanged)
-		{
 			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, cancellationToken);
-			var comment = BuildUpdatedPullRequestComment(pullRequest);
-			if (!await AddPullRequestCommentAsync(pullRequest.PullRequestUrl, comment, cancellationToken))
-				return 1;
 
+		if (bodyChanged)
+		{
+			if (!await UpdatePullRequestBodyAsync(pullRequest.PullRequestUrl, pullRequestBody, cancellationToken))
+				return 1;
+		}
+
+		if (commitsChanged || bodyChanged)
+		{
 			await m_settings.StandardOutput.WriteLineAsync($"Updated pull request: {pullRequest.PullRequestUrl}");
 			return 0;
 		}
@@ -428,8 +439,40 @@ internal sealed class ConventionRunner
 			$"{FormatConventionsLabel(targetRepositoryUrl, branchName)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
 		};
 
-		lines.AddRange(appliedConventions.Select(convention => $"- {FormatAppliedConvention(convention, targetRepositoryUrl, branchName)}"));
+		lines.AddRange(RenderAppliedConventionLines(appliedConventions, targetRepositoryUrl, branchName));
 		return string.Join(Environment.NewLine, lines);
+	}
+
+	private static IEnumerable<string> RenderAppliedConventionLines(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
+	{
+		var nodes = appliedConventions.ToDictionary(static x => x.Identity, static x => new AppliedConventionNode(x), StringComparer.Ordinal);
+		var roots = new List<AppliedConventionNode>();
+
+		foreach (var convention in appliedConventions)
+		{
+			var node = nodes[convention.Identity];
+			if (convention.SourceConventionIdentity is { } sourceConventionIdentity && nodes.TryGetValue(sourceConventionIdentity, out var parent))
+				parent.Children.Add(node);
+			else
+				roots.Add(node);
+		}
+
+		foreach (var root in roots)
+		{
+			foreach (var line in RenderAppliedConventionNode(root, targetRepositoryUrl, branchName, depth: 0))
+				yield return line;
+		}
+	}
+
+	private static IEnumerable<string> RenderAppliedConventionNode(AppliedConventionNode node, string? targetRepositoryUrl, string branchName, int depth)
+	{
+		yield return $"{new string(' ', depth * 2)}- {FormatAppliedConvention(node.Convention, targetRepositoryUrl, branchName)}";
+
+		foreach (var child in node.Children)
+		{
+			foreach (var line in RenderAppliedConventionNode(child, targetRepositoryUrl, branchName, depth + 1))
+				yield return line;
+		}
 	}
 
 	private static string FormatApplyingConventionName(PlannedConvention plannedConvention) =>
@@ -439,11 +482,6 @@ internal sealed class ConventionRunner
 
 	private static bool IsRunningInGitHubActions() =>
 		string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
-
-	private static string BuildUpdatedPullRequestComment(PullRequestPreparation pullRequest) =>
-		pullRequest.RestartedFromBase
-			? $"repo-conventions rebuilt this pull request from the latest {pullRequest.StartingBranch} and force-pushed the updated convention commits."
-			: "repo-conventions added new convention commits to this pull request.";
 
 	private static string BuildMergeBaseFailureMessage(string startingBranch, string pullRequestBranch, GitMergeBaseResult mergeBaseResult)
 	{
@@ -477,6 +515,16 @@ internal sealed class ConventionRunner
 			return true;
 
 		await m_settings.StandardError.WriteLineAsync($"Failed to add pull request comment: {result.StandardError}{result.StandardOutput}");
+		return false;
+	}
+
+	private async Task<bool> UpdatePullRequestBodyAsync(string pullRequestUrl, string body, CancellationToken cancellationToken)
+	{
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "edit", pullRequestUrl, "--body", body], cancellationToken);
+		if (result.ExitCode == 0)
+			return true;
+
+		await m_settings.StandardError.WriteLineAsync($"Failed to update pull request body: {result.StandardError}{result.StandardOutput}");
 		return false;
 	}
 
@@ -623,13 +671,20 @@ internal sealed class ConventionRunner
 		public static ConventionExecutionResult Success() => new(true);
 	}
 
-	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName);
+	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName, string Body);
 
-	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
+	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, string ExistingPullRequestBody, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
-	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, string? SourceConventionName);
+	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, string? SourceConventionIdentity, string? SourceConventionName);
 
-	private sealed record AppliedConvention(string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory);
+	private sealed record AppliedConvention(string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, string? SourceConventionIdentity);
+
+	private sealed class AppliedConventionNode(AppliedConvention convention)
+	{
+		public AppliedConvention Convention { get; } = convention;
+
+		public List<AppliedConventionNode> Children { get; } = [];
+	}
 
 	private sealed record RemoteDirectoryReference(string Owner, string Repository, string? Ref, string DirectoryPath);
 

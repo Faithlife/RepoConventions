@@ -236,7 +236,8 @@ internal sealed class ConventionRunner
 		if (m_remoteCloneCache.TryGetValue(remotePath.Identity, out var existingPath))
 			return existingPath;
 
-		var clonePath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Remote.{Guid.NewGuid():N}");
+		// Keep temp clone roots short to preserve path headroom on Windows.
+		var clonePath = Path.Combine(Path.GetTempPath(), $"rc-r-{Guid.NewGuid():N}");
 		Directory.CreateDirectory(clonePath);
 		var repositoryUrl = GetRemoteRepositoryUrl(remotePath);
 

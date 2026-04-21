@@ -25,7 +25,7 @@ This document captures the current implementation target for the CLI.
 - A remote convention path uses the `owner/repo/path@ref` form.
 - A local convention path starts with `./` or `../` and is resolved relative to the containing configuration file.
 - Fetch remote conventions with `git clone`.
-- Nested composite settings syntax should follow the GitHub Actions style eventually, but for now composite convention settings are ignored.
+- Composite conventions propagate parent settings into child settings using the GitHub Actions style `${{ settings.foo.bar }}` syntax described in `docs/composite-settings-propagation.md`.
 - If both `convention.yml` and `convention.ps1` exist, apply the composite convention first, then run the script.
 - If a cycle is detected, skip the convention entry that would create the cycle and continue.
 
@@ -72,6 +72,5 @@ This document captures the current implementation target for the CLI.
 - Add config path override support.
 - Validate conventions without applying them.
 - Support caching for remote convention fetches.
-- Support richer settings propagation for composite conventions.
 - Add more structured failure and diagnostics reporting.
 - Add a machine-readable output mode.

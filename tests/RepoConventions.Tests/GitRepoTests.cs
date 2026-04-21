@@ -21,6 +21,24 @@ internal sealed class GitRepoTests
 	}
 
 	[Test]
+	public async Task GitClientCommitAllAsyncReturnsFalseWhenNothingIsStaged()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile("tracked.txt", "content");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var gitClient = new GitClient(repo.RootPath);
+		var committed = await gitClient.CommitAllAsync("Apply convention no-op.", CancellationToken.None);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(committed, Is.False);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Initial commit."));
+			Assert.That(await repo.GetWorkingTreeStatusAsync(), Is.Empty);
+		}
+	}
+
+	[Test]
 	public async Task CommitModeFailsOutsideRepositoryRoot()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

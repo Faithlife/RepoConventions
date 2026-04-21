@@ -20,7 +20,7 @@ internal sealed class ConventionRunner
 		}
 
 		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), plannedConventions, sourceConventionIdentity: null, sourceConventionName: null, cancellationToken);
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, expandCompositeSettings: false, sourceConventionIdentity: null, sourceConventionName: null, cancellationToken);
 		if (!planSucceeded)
 			return 1;
 
@@ -37,22 +37,35 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> BuildConventionPlanAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool expandCompositeSettings, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		var references = ConventionConfiguration.Load(configPath);
 		var containingDirectory = Path.GetDirectoryName(configPath)!;
 
 		foreach (var reference in references)
 		{
-			if (!await AddConventionToPlanAsync(reference, containingDirectory, activeConventions, plannedConventions, sourceConventionIdentity, sourceConventionName, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, containingDirectory, activeConventions, plannedConventions, parentSettings, expandCompositeSettings, sourceConventionIdentity, sourceConventionName, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string containingDirectory, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool expandCompositeSettings, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
+		JsonNode? effectiveSettings;
+		try
+		{
+			effectiveSettings = expandCompositeSettings
+				? ConventionSettingsPropagator.Resolve(reference.Settings, parentSettings, sourceConventionName ?? "top-level", reference.Path)
+				: reference.Settings?.DeepClone();
+		}
+		catch (InvalidOperationException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return false;
+		}
+
 		var resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		if (activeConventions.Contains(resolvedConvention.Identity))
 		{
@@ -79,11 +92,11 @@ internal sealed class ConventionRunner
 		{
 			if (File.Exists(conventionConfigPath))
 			{
-				if (!await BuildConventionPlanAsync(conventionConfigPath, activeConventions, plannedConventions, resolvedConvention.Identity, resolvedConvention.DisplayName, cancellationToken))
+				if (!await BuildConventionPlanAsync(conventionConfigPath, activeConventions, plannedConventions, effectiveSettings, expandCompositeSettings: true, resolvedConvention.Identity, resolvedConvention.DisplayName, cancellationToken))
 					return false;
 			}
 
-			plannedConventions.Add(new PlannedConvention(resolvedConvention, reference.Settings, sourceConventionIdentity, sourceConventionName));
+			plannedConventions.Add(new PlannedConvention(resolvedConvention, effectiveSettings, sourceConventionIdentity, sourceConventionName));
 			return true;
 		}
 		finally
@@ -236,7 +249,7 @@ internal sealed class ConventionRunner
 		if (m_remoteCloneCache.TryGetValue(remotePath.Identity, out var existingPath))
 			return existingPath;
 
-		var clonePath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Remote.{Guid.NewGuid():N}");
+		var clonePath = TemporaryDirectoryPath.Create();
 		Directory.CreateDirectory(clonePath);
 		var repositoryUrl = GetRemoteRepositoryUrl(remotePath);
 

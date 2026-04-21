@@ -311,6 +311,216 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModePropagatesExactTypedSettingsFromCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			  settings:
+			    name: repo-conventions
+			    version: 10
+			    enabled: true
+			    labels:
+			      - automation
+			      - conventions
+			    metadata:
+			      owner: Faithlife
+			    nullable: null
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../write-settings
+			  settings:
+			    stringValue: ${{ settings.name }}
+			    numberValue: ${{ settings.version }}
+			    boolValue: ${{ settings.enabled }}
+			    arrayValue: ${{ settings.labels }}
+			    objectValue: ${{ settings.metadata }}
+			    nullValue: ${{ settings.nullable }}
+			""");
+		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"stringValue\":\"repo-conventions\""));
+			Assert.That(settingsJson, Does.Contain("\"numberValue\":10"));
+			Assert.That(settingsJson, Does.Contain("\"boolValue\":true"));
+			Assert.That(settingsJson, Does.Contain("\"arrayValue\":[\"automation\",\"conventions\"]"));
+			Assert.That(settingsJson, Does.Contain("\"objectValue\":{\"owner\":\"Faithlife\"}"));
+			Assert.That(settingsJson, Does.Contain("\"nullValue\":null"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeInterpolatesMultipleExpressionsAndMissingValuesInCompositeStrings()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			  settings:
+			    owner: Faithlife
+			    repo: RepoConventions
+			    version: 10
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../write-settings
+			  settings:
+			    displayName: ${{ settings.owner }}/${{ settings.repo }}@v${{ settings.version }}
+			    missingMessage: hello-${{ settings.missing }}-world
+			""");
+		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"displayName\":\"Faithlife/RepoConventions@v10\""));
+			Assert.That(settingsJson, Does.Contain("\"missingMessage\":\"hello--world\""));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeOmitsMissingExactValuesAndSplicesArraysFromCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			  settings:
+			    labels:
+			      - automation
+			      - conventions
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../write-settings
+			  settings:
+			    keep: yes
+			    missingProp: ${{ settings.missing }}
+			    items:
+			      - before
+			      - ${{ settings.labels }}
+			      - ${{ settings.missing }}
+			      - after
+			""");
+		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"keep\":\"yes\""));
+			Assert.That(settingsJson, Does.Not.Contain("missingProp"));
+			Assert.That(settingsJson, Does.Contain("\"items\":[\"before\",\"automation\",\"conventions\",\"after\"]"));
+			Assert.That(settingsJson, Does.Not.Contain("[[\"automation\",\"conventions\"]]"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModePropagatesSettingsThroughNestedCompositeConventions()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/outer
+			  settings:
+			    sdk:
+			      version: 10
+			    package:
+			      id: RepoConventions
+			""");
+		repo.WriteFile(".github/conventions/outer/convention.yml", """
+			conventions:
+			- path: ../inner
+			  settings:
+			    version: ${{ settings.sdk.version }}
+			    packageId: ${{ settings.package.id }}
+			""");
+		repo.WriteFile(".github/conventions/inner/convention.yml", """
+			conventions:
+			- path: ../write-settings
+			  settings:
+			    displayName: ${{ settings.packageId }} v${{ settings.version }}
+			""");
+		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"displayName\":\"RepoConventions v10\""));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenCompositeSettingsPropagationHitsTypeMismatch()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			  settings:
+			    sdk: 10
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../write-settings
+			  settings:
+			    version: ${{ settings.sdk.version }}
+			""");
+		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'should-not-exist.txt') -Value 'unexpected'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(repo.FileExists("should-not-exist.txt"), Is.False);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Initial commit."));
+			Assert.That(result.StandardError, Does.Contain("../write-settings"));
+			Assert.That(result.StandardError, Does.Contain("${{ settings.sdk.version }}"));
+			Assert.That(result.StandardError, Does.Contain("non-object value"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeBuildsEntireConventionPlanBeforeApplyingAnyConvention()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

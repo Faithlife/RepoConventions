@@ -34,7 +34,7 @@ A convention directory contains a convention definition, which may include a con
 
 #### Composite conventions
 
-A convention with a configuration file is a composite convention. The configuration file is named `convention.yml`. The YAML in that file should have a `conventions` property with one or more convention objects. Each convention object has a `path` and optional `settings`. When such a convention is applied, all of the conventions in the convention configuration file are applied.
+A convention with a configuration file is a composite convention. The configuration file is named `convention.yml`. The YAML in that file should have a `conventions` property with one or more convention objects. Each convention object has a `path` and optional `settings`. When such a convention is applied, all of the conventions in the convention configuration file are applied. Child convention settings in a composite convention can reference the parent convention's settings using syntax such as `${{ settings.sdk.version }}`.
 
 #### Executable conventions
 

@@ -17,7 +17,7 @@ internal sealed class TemporaryGitRepository : IDisposable
 
 	public static async Task<TemporaryGitRepository> CreateAsync()
 	{
-		var rootPath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Tests.{Guid.NewGuid():N}");
+		var rootPath = TemporaryDirectoryPath.Create();
 		Directory.CreateDirectory(rootPath);
 
 		await RunGitAsync(rootPath, ["init", "--initial-branch=main"]);
@@ -29,7 +29,7 @@ internal sealed class TemporaryGitRepository : IDisposable
 
 	public static async Task<TemporaryGitRepository> CreateBareAsync()
 	{
-		var rootPath = Path.Combine(Path.GetTempPath(), $"RepoConventions.Tests.Bare.{Guid.NewGuid():N}");
+		var rootPath = TemporaryDirectoryPath.Create();
 		Directory.CreateDirectory(rootPath);
 		await RunGitAsync(Path.GetTempPath(), ["init", "--bare", rootPath]);
 		return new TemporaryGitRepository(rootPath, isBare: true);

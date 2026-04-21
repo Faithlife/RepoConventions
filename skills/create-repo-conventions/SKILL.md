@@ -23,7 +23,7 @@ Produce published conventions with a stable path, documented settings, and idemp
 - If both files exist, repo-conventions applies `convention.yml` first and then executes `convention.ps1`.
 - Composite conventions are for composing other conventions.
 - Executable conventions are for inspecting repository state and rewriting files.
-- Convention references may carry `settings`, but nested composite settings propagation is not currently implemented.
+- Convention references may carry `settings`, including propagated child settings resolved from parent settings in composite conventions.
 
 ## Authoring Workflow
 
@@ -40,6 +40,7 @@ Produce published conventions with a stable path, documented settings, and idemp
 - Keep entries in the intended application order.
 - Use explicit local relative paths for conventions published from the same repository.
 - Keep settings shallow and JSON-serializable.
+- When propagating parent settings into child settings, use the supported `${{ settings.foo.bar }}` syntax and keep the behavior within the documented composite-settings propagation rules.
 
 Example:
 

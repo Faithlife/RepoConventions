@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed design for review.
+Implemented.
 
 ## Purpose
 

@@ -337,31 +337,11 @@ internal static class ConventionConfiguration
 	{
 		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-		var yamlModel = new Dictionary<string, object?>
-		{
-			["conventions"] = configuration.Conventions.Select(ConvertConventionRecordToYamlModel).ToList(),
-		};
-
-		if (configuration.PullRequest is not null && ConvertPullRequestRecordToYamlModel(configuration.PullRequest) is { Count: > 0 } pullRequestYamlModel)
-			yamlModel["pull-request"] = pullRequestYamlModel;
+		var normalizedConfiguration = NormalizeConfigurationFile(configuration);
+		var json = JsonSerializer.Serialize(normalizedConfiguration, s_jsonWriterOptions);
+		var yamlModel = s_yamlDeserializer.Deserialize(new StringReader(json));
 
 		File.WriteAllText(path, s_yamlWriter.Serialize(yamlModel));
-	}
-
-	private static Dictionary<string, object?> ConvertConventionRecordToYamlModel(ConventionRecord convention)
-	{
-		var yamlModel = new Dictionary<string, object?>
-		{
-			["path"] = convention.Path,
-		};
-
-		if (convention.Settings is not null)
-			yamlModel["settings"] = ConvertJsonNodeToYamlValue(convention.Settings);
-
-		if (convention.PullRequest is not null && ConvertPullRequestRecordToYamlModel(convention.PullRequest) is { Count: > 0 } pullRequestYamlModel)
-			yamlModel["pull-request"] = pullRequestYamlModel;
-
-		return yamlModel;
 	}
 
 	private static PullRequestSettings? ConvertPullRequestRecord(PullRequestRecord? pullRequest) =>
@@ -374,50 +354,43 @@ internal static class ConventionConfiguration
 				pullRequest.AutoMerge,
 				pullRequest.MergeMethod);
 
-	private static Dictionary<string, object?> ConvertPullRequestRecordToYamlModel(PullRequestRecord pullRequest)
+	private static ConfigurationFile NormalizeConfigurationFile(ConfigurationFile configuration) =>
+		new()
+		{
+			Conventions = configuration.Conventions.Select(NormalizeConventionRecord).ToList(),
+			PullRequest = NormalizePullRequestRecord(configuration.PullRequest),
+		};
+
+	private static ConventionRecord NormalizeConventionRecord(ConventionRecord convention) =>
+		new()
+		{
+			Path = convention.Path,
+			Settings = convention.Settings?.DeepClone(),
+			PullRequest = NormalizePullRequestRecord(convention.PullRequest),
+		};
+
+	private static PullRequestRecord? NormalizePullRequestRecord(PullRequestRecord? pullRequest)
 	{
-		var yamlModel = new Dictionary<string, object?>();
-
-		if (pullRequest.Labels is { Count: > 0 })
-			yamlModel["labels"] = pullRequest.Labels;
-
-		if (pullRequest.Reviewers is { Count: > 0 })
-			yamlModel["reviewers"] = pullRequest.Reviewers;
-
-		if (pullRequest.Assignees is { Count: > 0 })
-			yamlModel["assignees"] = pullRequest.Assignees;
-
-		if (pullRequest.AutoMerge is not null)
-			yamlModel["auto-merge"] = pullRequest.AutoMerge;
-
-		if (!string.IsNullOrWhiteSpace(pullRequest.MergeMethod))
-			yamlModel["merge-method"] = pullRequest.MergeMethod;
-
-		return yamlModel;
-	}
-
-	private static object? ConvertJsonNodeToYamlValue(JsonNode? node)
-	{
-		if (node is null)
+		if (pullRequest is null)
 			return null;
 
-		using var jsonDocument = JsonDocument.Parse(node.ToJsonString());
-		return ConvertJsonElementToYamlValue(jsonDocument.RootElement);
-	}
+		List<string>? labels = pullRequest.Labels is { Count: > 0 } ? [.. pullRequest.Labels] : null;
+		List<string>? reviewers = pullRequest.Reviewers is { Count: > 0 } ? [.. pullRequest.Reviewers] : null;
+		List<string>? assignees = pullRequest.Assignees is { Count: > 0 } ? [.. pullRequest.Assignees] : null;
+		var mergeMethod = string.IsNullOrWhiteSpace(pullRequest.MergeMethod) ? null : pullRequest.MergeMethod;
 
-	private static object? ConvertJsonElementToYamlValue(JsonElement element) =>
-		element.ValueKind switch
+		if (labels is null && reviewers is null && assignees is null && pullRequest.AutoMerge is null && mergeMethod is null)
+			return null;
+
+		return new PullRequestRecord
 		{
-			JsonValueKind.Object => element.EnumerateObject().ToDictionary(static x => x.Name, static x => ConvertJsonElementToYamlValue(x.Value)),
-			JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElementToYamlValue).ToList(),
-			JsonValueKind.String => element.GetString(),
-			JsonValueKind.Number when element.TryGetInt64(out var int64Value) => int64Value,
-			JsonValueKind.Number when element.TryGetDecimal(out var decimalValue) => decimalValue,
-			JsonValueKind.Number => element.GetDouble(),
-			JsonValueKind.True or JsonValueKind.False => element.GetBoolean(),
-			JsonValueKind.Null => null,
-			_ => throw new InvalidOperationException($"Unsupported JSON value kind '{element.ValueKind}'."),
+			Labels = labels,
+			Reviewers = reviewers,
+			Assignees = assignees,
+			AutoMerge = pullRequest.AutoMerge,
+			MergeMethod = mergeMethod,
 		};
+	}
 
 	private sealed class ConfigurationFile
 	{
@@ -461,6 +434,10 @@ internal static class ConventionConfiguration
 	private static readonly ISerializer s_yamlJsonSerializer = new SerializerBuilder().JsonCompatible().Build();
 	private static readonly ISerializer s_yamlWriter = new SerializerBuilder().Build();
 	private static readonly IDeserializer s_yamlDeserializer = new DeserializerBuilder().WithAttemptingUnquotedStringTypeDeserialization().Build();
+	private static readonly JsonSerializerOptions s_jsonWriterOptions = new()
+	{
+		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+	};
 
 	private enum ConventionInsertionKind
 	{

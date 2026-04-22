@@ -78,7 +78,7 @@ internal static class ConventionConfiguration
 				throw new InvalidOperationException($"Configuration file '{path}' must contain scalar mapping keys.");
 
 			var valueIndex = currentIndex + 1;
-			if (string.Equals(keyEvent.Value, "conventions", StringComparison.Ordinal))
+			if (keyEvent.Value == "conventions")
 				return DetermineConventionInsertionPlan(path, yaml, keyEvent, valueIndex, parsingEvents);
 
 			currentIndex = SkipNode(parsingEvents, valueIndex);
@@ -87,7 +87,7 @@ internal static class ConventionConfiguration
 		throw new InvalidOperationException($"Configuration file '{path}' must contain a 'conventions' sequence.");
 	}
 
-	private static ConventionInsertionPlan DetermineConventionInsertionPlan(string path, string yaml, Scalar keyEvent, int valueIndex, IReadOnlyList<ParsingEvent> parsingEvents)
+	private static ConventionInsertionPlan DetermineConventionInsertionPlan(string path, string yaml, Scalar keyEvent, int valueIndex, List<ParsingEvent> parsingEvents)
 	{
 		if (valueIndex >= parsingEvents.Count || parsingEvents[valueIndex] is not SequenceStart)
 			throw new InvalidOperationException($"The 'conventions' entry in '{path}' must be a sequence to support 'repo-conventions add'.");
@@ -167,7 +167,7 @@ internal static class ConventionConfiguration
 
 		var needsLeadingNewLine = insertionPlan.Index > 0 && yaml[insertionPlan.Index - 1] != '\n';
 		return yaml[..insertionPlan.Index]
-			+ (needsLeadingNewLine ? newLine : string.Empty)
+			+ (needsLeadingNewLine ? newLine : "")
 			+ conventionLine
 			+ newLine
 			+ yaml[insertionPlan.Index..];
@@ -319,12 +319,12 @@ internal static class ConventionConfiguration
 	private static string GetLineBreakText(string yaml, int lineEndIndex)
 	{
 		if (lineEndIndex >= yaml.Length)
-			return string.Empty;
+			return "";
 
 		if (yaml[lineEndIndex] == '\r' && lineEndIndex + 1 < yaml.Length && yaml[lineEndIndex + 1] == '\n')
 			return "\r\n";
 
-		return yaml[lineEndIndex] == '\n' ? "\n" : string.Empty;
+		return yaml[lineEndIndex] == '\n' ? "\n" : "";
 	}
 
 	private static string GetNewLineSequence(string yaml) => yaml.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : Environment.NewLine;

@@ -337,8 +337,7 @@ internal static class ConventionConfiguration
 	{
 		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-		var normalizedConfiguration = NormalizeConfigurationFile(configuration);
-		var json = JsonSerializer.Serialize(normalizedConfiguration, s_jsonWriterOptions);
+		var json = JsonSerializer.Serialize(configuration, s_jsonWriterOptions);
 		var yamlModel = s_yamlDeserializer.Deserialize(new StringReader(json));
 
 		File.WriteAllText(path, s_yamlWriter.Serialize(yamlModel));
@@ -353,44 +352,6 @@ internal static class ConventionConfiguration
 				pullRequest.Assignees,
 				pullRequest.AutoMerge,
 				pullRequest.MergeMethod);
-
-	private static ConfigurationFile NormalizeConfigurationFile(ConfigurationFile configuration) =>
-		new()
-		{
-			Conventions = configuration.Conventions.Select(NormalizeConventionRecord).ToList(),
-			PullRequest = NormalizePullRequestRecord(configuration.PullRequest),
-		};
-
-	private static ConventionRecord NormalizeConventionRecord(ConventionRecord convention) =>
-		new()
-		{
-			Path = convention.Path,
-			Settings = convention.Settings?.DeepClone(),
-			PullRequest = NormalizePullRequestRecord(convention.PullRequest),
-		};
-
-	private static PullRequestRecord? NormalizePullRequestRecord(PullRequestRecord? pullRequest)
-	{
-		if (pullRequest is null)
-			return null;
-
-		List<string>? labels = pullRequest.Labels is { Count: > 0 } ? [.. pullRequest.Labels] : null;
-		List<string>? reviewers = pullRequest.Reviewers is { Count: > 0 } ? [.. pullRequest.Reviewers] : null;
-		List<string>? assignees = pullRequest.Assignees is { Count: > 0 } ? [.. pullRequest.Assignees] : null;
-		var mergeMethod = string.IsNullOrWhiteSpace(pullRequest.MergeMethod) ? null : pullRequest.MergeMethod;
-
-		if (labels is null && reviewers is null && assignees is null && pullRequest.AutoMerge is null && mergeMethod is null)
-			return null;
-
-		return new PullRequestRecord
-		{
-			Labels = labels,
-			Reviewers = reviewers,
-			Assignees = assignees,
-			AutoMerge = pullRequest.AutoMerge,
-			MergeMethod = mergeMethod,
-		};
-	}
 
 	private sealed class ConfigurationFile
 	{

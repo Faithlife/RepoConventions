@@ -139,7 +139,14 @@ This keeps convention-level PR behavior aligned with the actual changes under re
 
 ## Effective Metadata Model
 
-For labels, reviewers, and assignees, the right reduction model is additive union.
+Labels always use additive union. Reviewers and assignees use additive union only when the effective result is not auto-merge.
+
+Rationale:
+
+- Labels improve triage and automation without implying human action.
+- Reviewers imply human review work.
+- Assignees imply human ownership or follow-up work.
+- When a PR is intended to auto-merge, requesting reviewers or assigning users usually creates noise and sends the wrong signal.
 
 ### Labels
 
@@ -157,7 +164,9 @@ Rules:
 
 ### Reviewers
 
-The effective reviewer set is the union of:
+If the effective result enables auto-merge, the effective reviewer set is empty.
+
+Otherwise, the effective reviewer set is the union of:
 
 1. Repository-level `pull-request.reviewers`.
 2. Convention-level `pull-request.reviewers` from contributing conventions.
@@ -167,10 +176,13 @@ Rules:
 - Reviewers are deduplicated.
 - Reviewer values may represent GitHub users or review-requestable teams.
 - The CLI adds configured reviewers but does not remove existing reviewers.
+- Reviewers are skipped entirely when the effective result enables auto-merge.
 
 ### Assignees
 
-The effective assignee set is the union of:
+If the effective result enables auto-merge, the effective assignee set is empty.
+
+Otherwise, the effective assignee set is the union of:
 
 1. Repository-level `pull-request.assignees`.
 2. Convention-level `pull-request.assignees` from contributing conventions.
@@ -180,6 +192,7 @@ Rules:
 - Assignees are deduplicated.
 - Assignee values are GitHub users.
 - The CLI adds configured assignees but does not remove existing assignees.
+- Assignees are skipped entirely when the effective result enables auto-merge.
 
 ## Built-In Label
 
@@ -206,11 +219,12 @@ Before creating or updating the PR:
 - For the built-in `repo-conventions` label, use the standard color and description above.
 - Never overwrite an existing label's color or description.
 
-Reviewers and assignees cannot be auto-created, so they need validation instead.
+Reviewers and assignees cannot be auto-created, so they need validation instead when they are going to be applied.
 
 Proposed behavior:
 
-- Validate reviewer and assignee identities before mutating the PR when GitHub exposes that information cheaply.
+- If the effective result does not enable auto-merge, validate reviewer and assignee identities before mutating the PR when GitHub exposes that information cheaply.
+- If the effective result enables auto-merge, skip reviewer and assignee validation because they will not be applied.
 - If a configured reviewer or assignee is invalid or cannot be requested for the target repository, fail with a clear message.
 - Do not silently skip invalid reviewers or assignees.
 
@@ -284,16 +298,16 @@ When `apply --open-pr` creates a new PR:
 
 - Compute the effective metadata and effective auto-merge behavior.
 - Create any missing labels.
-- Validate reviewers and assignees.
-- Create the PR with the effective labels, reviewers, and assignees.
+- Validate reviewers and assignees only when auto-merge is not enabled.
+- Create the PR with the effective labels and, when applicable, the effective reviewers and assignees.
 - If auto-merge is enabled, attempt to enable it after the PR exists.
 
 When `apply --open-pr` updates an existing PR:
 
 - Recompute the effective metadata and effective auto-merge behavior.
 - Create any newly needed labels.
-- Validate reviewers and assignees.
-- Add any missing labels, reviewers, and assignees.
+- Validate reviewers and assignees only when auto-merge is not enabled.
+- Add any missing labels and, when applicable, any missing reviewers and assignees.
 - If auto-merge is enabled, attempt to enable or update it after the PR is updated.
 
 When the effective result disables auto-merge:
@@ -352,8 +366,8 @@ When a PR run computes effective behavior, print short summaries such as:
 
 ```text
 Pull request labels: repo-conventions, automation
-Pull request reviewers: octocat, my-org/build-team
-Pull request assignees: octocat
+Pull request reviewers: skipped for auto-merge
+Pull request assignees: skipped for auto-merge
 Pull request auto-merge: enabled (desired: rebase, actual: squash, source: repository config)
 ```
 
@@ -373,6 +387,6 @@ If the desired merge method is rejected and a fallback is used, print a note exp
 2. Track which conventions actually produced commits and use only those conventions for convention-level pull request behavior.
 3. Compute additive metadata and effective auto-merge behavior for one generated PR.
 4. Query repository labels and create any missing labels, including the built-in `repo-conventions` label.
-5. Apply labels, reviewers, and assignees during `gh pr create` and existing PR updates.
+5. Apply labels on every generated PR, but apply reviewers and assignees only when the effective result is not auto-merge.
 6. Add auto-merge enablement with desired-method selection and fallback retry behavior.
 7. Add integration tests covering built-in label creation, configured label creation, commit-producing convention filtering, reviewer and assignee validation, explicit and inherited auto-merge, and merge-method fallback handling.

@@ -87,6 +87,182 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeCreatesMissingLabelsAndAppliesConfiguredMetadata()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  labels:
+			    - automation
+			  reviewers:
+			    - octocat
+			    - my-org/build-team
+			  assignees:
+			    - octocat
+			conventions:
+			- path: ./conventions/add-file
+			  pull-request:
+			    labels:
+			      - dependencies
+			    reviewers:
+			      - my-org/dotnet-team
+			    assignees:
+			      - hubot
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var createInvocation = fakeGh.LastInvocation("pr", "create");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.CountCalls("label", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("label", "create"), Is.EqualTo(3));
+			Assert.That(createInvocation, Does.Contain("--label"));
+			Assert.That(createInvocation, Does.Contain("repo-conventions"));
+			Assert.That(createInvocation, Does.Contain("automation"));
+			Assert.That(createInvocation, Does.Contain("dependencies"));
+			Assert.That(createInvocation, Does.Contain("--reviewer"));
+			Assert.That(createInvocation, Does.Contain("octocat"));
+			Assert.That(createInvocation, Does.Contain("my-org/build-team"));
+			Assert.That(createInvocation, Does.Contain("my-org/dotnet-team"));
+			Assert.That(createInvocation, Does.Contain("--assignee"));
+			Assert.That(createInvocation, Does.Contain("hubot"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeSkipsReviewersAndAssigneesWhenAutoMergeIsEnabled()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  reviewers:
+			    - octocat
+			  assignees:
+			    - hubot
+			  auto-merge: true
+			  merge-method: squash
+			conventions:
+			- path: ./conventions/add-file
+			  pull-request:
+			    reviewers:
+			      - my-org/dotnet-team
+			    assignees:
+			      - octocat
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var createInvocation = fakeGh.LastInvocation("pr", "create");
+		var mergeInvocation = fakeGh.LastInvocation("pr", "merge");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(createInvocation, Does.Not.Contain("--reviewer"));
+			Assert.That(createInvocation, Does.Not.Contain("--assignee"));
+			Assert.That(mergeInvocation, Does.Contain("--squash"));
+			Assert.That(result.StandardOutput, Does.Contain("Pull request reviewers: skipped for auto-merge"));
+			Assert.That(result.StandardOutput, Does.Contain("Pull request assignees: skipped for auto-merge"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeFallsBackToSquashWhenDesiredMergeMethodIsNotAllowed()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli { RebaseMergeAllowed = false };
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  auto-merge: true
+			  merge-method: rebase
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var mergeInvocation = fakeGh.LastInvocation("pr", "merge");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "merge"), Is.EqualTo(1));
+			Assert.That(mergeInvocation, Does.Contain("--squash"));
+			Assert.That(mergeInvocation, Does.Not.Contain("--rebase"));
+			Assert.That(result.StandardOutput, Does.Contain("fallback method: squash"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeOnlyUsesConventionMetadataFromConventionsThatCreateCommits()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/no-op
+			  pull-request:
+			    labels:
+			      - ignored-label
+			    reviewers:
+			      - ignored-reviewer
+			- path: ./conventions/add-file
+			  pull-request:
+			    labels:
+			      - applied-label
+			""");
+		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'no changes'
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var createInvocation = fakeGh.LastInvocation("pr", "create");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(createInvocation, Does.Contain("applied-label"));
+			Assert.That(createInvocation, Does.Not.Contain("ignored-label"));
+			Assert.That(createInvocation, Does.Not.Contain("ignored-reviewer"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeLinksRemoteConventionsInPullRequestBody()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -370,7 +546,9 @@ internal sealed class OpenPrTests
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
-			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "edit"), Does.Contain("--add-label"));
+			Assert.That(fakeGh.LastInvocation("pr", "edit"), Does.Contain("repo-conventions"));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}
 	}
@@ -403,6 +581,7 @@ internal sealed class OpenPrTests
 		await repo.PushAsync("origin", "main");
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var editInvocations = fakeGh.Invocations.Where(static x => x.Length >= 2 && x[0] == "pr" && x[1] == "edit").ToList();
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -413,8 +592,9 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(repo.FileExists("base.txt"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
-			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
-			Assert.That(fakeGh.LastInvocation("pr", "edit").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(2));
+			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--body") && x.Last().Contains("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)", StringComparison.Ordinal)), Is.True);
+			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--add-label") && x.Any(static y => y == "repo-conventions")), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "close"), Is.Zero);
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 		}
@@ -444,13 +624,15 @@ internal sealed class OpenPrTests
 		await repo.DeleteBranchAsync("repo-conventions");
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var editInvocations = fakeGh.Invocations.Where(static x => x.Length >= 2 && x[0] == "pr" && x[1] == "edit").ToList();
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
-			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
-			Assert.That(fakeGh.LastInvocation("pr", "edit").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(2));
+			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--body") && x.Last().Contains("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)", StringComparison.Ordinal)), Is.True);
+			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--add-label") && x.Any(static y => y == "repo-conventions")), Is.True);
 		}
 	}
 
@@ -512,6 +694,8 @@ internal sealed class OpenPrTests
 	{
 		public Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>> Runner => RunAsync;
 
+		public bool AutoMergeAllowed { get; set; } = true;
+
 		public int PrCommentExitCode { get; set; }
 
 		public int PrEditExitCode { get; set; }
@@ -520,11 +704,25 @@ internal sealed class OpenPrTests
 
 		public int PrCreateExitCode { get; set; }
 
+		public int PrMergeExitCode { get; set; }
+
+		public string PrMergeOutput { get; set; } = "";
+
+		public string PrMergeError { get; set; } = "";
+
 		public string PrCreateOutput { get; set; } = "https://github.com/example/repo/pull/1";
 
 		public string RepoViewOutput { get; set; } = "https://github.com/example/repo";
 
+		public bool MergeCommitAllowed { get; set; } = true;
+
+		public bool RebaseMergeAllowed { get; set; } = true;
+
+		public bool SquashMergeAllowed { get; set; } = true;
+
 		private List<OpenPullRequest> OpenPullRequests { get; } = [];
+
+		private HashSet<string> Labels { get; } = new(StringComparer.OrdinalIgnoreCase);
 
 		public List<string[]> Invocations { get; } = [];
 
@@ -533,6 +731,8 @@ internal sealed class OpenPrTests
 		public string[] LastInvocation(string command, string subcommand) => Invocations.Last(x => x.Length >= 2 && x[0] == command && x[1] == subcommand);
 
 		public void AddOpenPullRequest(string url, string headRefName, string baseRefName, string body = "") => OpenPullRequests.Add(new OpenPullRequest(url, headRefName, baseRefName, body));
+
+		public void AddExistingLabel(string name) => Labels.Add(name);
 
 		public Task<ExternalCommandResult> RunAsync(ExternalCommandRequest request, CancellationToken cancellationToken)
 		{
@@ -545,8 +745,22 @@ internal sealed class OpenPrTests
 			if (arguments is ["pr", "list", ..])
 				return Task.FromResult(new ExternalCommandResult(0, JsonSerializer.Serialize(OpenPullRequests, s_jsonSerializerOptions), ""));
 
+			if (arguments is ["label", "list", ..])
+				return Task.FromResult(new ExternalCommandResult(0, JsonSerializer.Serialize(Labels.Select(static x => new LabelRecord(x)), s_jsonSerializerOptions), ""));
+
+			if (arguments is ["label", "create", var label, ..])
+			{
+				Labels.Add(label);
+				return Task.FromResult(new ExternalCommandResult(0, "", ""));
+			}
+
 			if (arguments is ["repo", "view", ..])
-				return Task.FromResult(new ExternalCommandResult(0, RepoViewOutput, ""));
+			{
+				if (arguments.Contains("--jq"))
+					return Task.FromResult(new ExternalCommandResult(0, RepoViewOutput, ""));
+
+				return Task.FromResult(new ExternalCommandResult(0, JsonSerializer.Serialize(new RepoViewRecord(RepoViewOutput, AutoMergeAllowed, MergeCommitAllowed, RebaseMergeAllowed, SquashMergeAllowed), s_jsonSerializerOptions), ""));
+			}
 
 			if (arguments is ["pr", "comment", ..])
 				return Task.FromResult(new ExternalCommandResult(PrCommentExitCode, "", PrCommentExitCode == 0 ? "" : "comment failed"));
@@ -560,10 +774,17 @@ internal sealed class OpenPrTests
 			if (arguments is ["pr", "create", ..])
 				return Task.FromResult(new ExternalCommandResult(PrCreateExitCode, PrCreateOutput, PrCreateExitCode == 0 ? "" : "create failed"));
 
+			if (arguments is ["pr", "merge", ..])
+				return Task.FromResult(new ExternalCommandResult(PrMergeExitCode, PrMergeOutput, PrMergeExitCode == 0 ? PrMergeError : (string.IsNullOrEmpty(PrMergeError) ? "merge failed" : PrMergeError)));
+
 			return Task.FromResult(new ExternalCommandResult(1, "", $"Unexpected gh arguments: {string.Join(' ', arguments)}"));
 		}
 
+		private sealed record LabelRecord(string Name);
+
 		private sealed record OpenPullRequest(string Url, string HeadRefName, string BaseRefName, string Body);
+
+		private sealed record RepoViewRecord(string Url, bool AutoMergeAllowed, bool MergeCommitAllowed, bool RebaseMergeAllowed, bool SquashMergeAllowed);
 
 		private static readonly JsonSerializerOptions s_jsonSerializerOptions = new()
 		{

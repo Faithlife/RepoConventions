@@ -7,7 +7,7 @@ namespace RepoConventions;
 
 internal static class ConventionConfiguration
 {
-	public static IReadOnlyList<ConventionReference> Load(string path)
+	public static ConventionFileConfiguration Load(string path)
 	{
 		var configuration = LoadConfigurationFile(path);
 
@@ -17,10 +17,10 @@ internal static class ConventionConfiguration
 			if (string.IsNullOrWhiteSpace(convention.Path))
 				throw new InvalidOperationException($"Convention entries in '{path}' must include a non-empty 'path'.");
 
-			references.Add(new ConventionReference(convention.Path, convention.Settings));
+			references.Add(new ConventionReference(convention.Path, convention.Settings, ConvertPullRequestRecord(convention.PullRequest)));
 		}
 
-		return references;
+		return new ConventionFileConfiguration(references, ConvertPullRequestRecord(configuration.PullRequest));
 	}
 
 	public static bool AddConventionPath(string configurationPath, string conventionPath)
@@ -60,6 +60,9 @@ internal static class ConventionConfiguration
 			["conventions"] = configuration.Conventions.Select(ConvertConventionRecordToYamlModel).ToList(),
 		};
 
+		if (configuration.PullRequest is not null && ConvertPullRequestRecordToYamlModel(configuration.PullRequest) is { Count: > 0 } pullRequestYamlModel)
+			yamlModel["pull-request"] = pullRequestYamlModel;
+
 		File.WriteAllText(path, s_yamlWriter.Serialize(yamlModel));
 	}
 
@@ -72,6 +75,41 @@ internal static class ConventionConfiguration
 
 		if (convention.Settings is not null)
 			yamlModel["settings"] = ConvertJsonNodeToYamlValue(convention.Settings);
+
+		if (convention.PullRequest is not null && ConvertPullRequestRecordToYamlModel(convention.PullRequest) is { Count: > 0 } pullRequestYamlModel)
+			yamlModel["pull-request"] = pullRequestYamlModel;
+
+		return yamlModel;
+	}
+
+	private static PullRequestSettings? ConvertPullRequestRecord(PullRequestRecord? pullRequest) =>
+		pullRequest is null
+			? null
+			: new PullRequestSettings(
+				pullRequest.Labels,
+				pullRequest.Reviewers,
+				pullRequest.Assignees,
+				pullRequest.AutoMerge,
+				pullRequest.MergeMethod);
+
+	private static Dictionary<string, object?> ConvertPullRequestRecordToYamlModel(PullRequestRecord pullRequest)
+	{
+		var yamlModel = new Dictionary<string, object?>();
+
+		if (pullRequest.Labels is { Count: > 0 })
+			yamlModel["labels"] = pullRequest.Labels;
+
+		if (pullRequest.Reviewers is { Count: > 0 })
+			yamlModel["reviewers"] = pullRequest.Reviewers;
+
+		if (pullRequest.Assignees is { Count: > 0 })
+			yamlModel["assignees"] = pullRequest.Assignees;
+
+		if (pullRequest.AutoMerge is not null)
+			yamlModel["auto-merge"] = pullRequest.AutoMerge;
+
+		if (!string.IsNullOrWhiteSpace(pullRequest.MergeMethod))
+			yamlModel["merge-method"] = pullRequest.MergeMethod;
 
 		return yamlModel;
 	}
@@ -101,6 +139,9 @@ internal static class ConventionConfiguration
 
 	private sealed class ConfigurationFile
 	{
+		[JsonPropertyName("pull-request")]
+		public PullRequestRecord? PullRequest { get; init; }
+
 		[JsonPropertyName("conventions")]
 		public List<ConventionRecord> Conventions { get; init; } = null!;
 	}
@@ -112,6 +153,27 @@ internal static class ConventionConfiguration
 
 		[JsonPropertyName("settings")]
 		public JsonNode? Settings { get; init; }
+
+		[JsonPropertyName("pull-request")]
+		public PullRequestRecord? PullRequest { get; init; }
+	}
+
+	private sealed class PullRequestRecord
+	{
+		[JsonPropertyName("labels")]
+		public List<string>? Labels { get; init; }
+
+		[JsonPropertyName("reviewers")]
+		public List<string>? Reviewers { get; init; }
+
+		[JsonPropertyName("assignees")]
+		public List<string>? Assignees { get; init; }
+
+		[JsonPropertyName("auto-merge")]
+		public bool? AutoMerge { get; init; }
+
+		[JsonPropertyName("merge-method")]
+		public string? MergeMethod { get; init; }
 	}
 
 	private static readonly ISerializer s_yamlJsonSerializer = new SerializerBuilder().JsonCompatible().Build();

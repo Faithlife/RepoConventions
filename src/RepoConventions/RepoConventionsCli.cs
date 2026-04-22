@@ -13,6 +13,18 @@ internal static class RepoConventionsCli
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
 		};
+		var autoMergeOption = new Option<bool>("--auto-merge")
+		{
+			Description = "Enable auto-merge for the generated pull request.",
+		};
+		var noAutoMergeOption = new Option<bool>("--no-auto-merge")
+		{
+			Description = "Disable auto-merge for this run even if configuration enables it.",
+		};
+		var mergeMethodOption = new Option<string>("--merge-method")
+		{
+			Description = "Preferred merge method for the generated pull request: merge, squash, or rebase.",
+		};
 		var conventionPathArgument = new Argument<string>("path")
 		{
 			Description = "Convention path to add to .github/conventions.yml.",
@@ -23,10 +35,16 @@ internal static class RepoConventionsCli
 
 		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
 		applyCommand.Options.Add(openPrOption);
+		applyCommand.Options.Add(autoMergeOption);
+		applyCommand.Options.Add(noAutoMergeOption);
+		applyCommand.Options.Add(mergeMethodOption);
 		applyCommand.SetAction(parseResult =>
 			ExecuteApplyAsync(
 				parseResult,
 				openPrOption,
+				autoMergeOption,
+				noAutoMergeOption,
+				mergeMethodOption,
 				workingDirectory,
 				standardOutput,
 				standardError,
@@ -51,8 +69,21 @@ internal static class RepoConventionsCli
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
 	}
 
-	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<bool> openPrOption, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<bool> openPrOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
+		if (parseResult.GetValue(autoMergeOption) && parseResult.GetValue(noAutoMergeOption))
+		{
+			await standardError.WriteLineAsync("--auto-merge and --no-auto-merge cannot be used together.");
+			return 1;
+		}
+
+		var mergeMethod = parseResult.GetValue(mergeMethodOption);
+		if (mergeMethod is not null && mergeMethod is not ("merge" or "squash" or "rebase"))
+		{
+			await standardError.WriteLineAsync("--merge-method must be one of: merge, squash, rebase.");
+			return 1;
+		}
+
 		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
 		{
 			await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");
@@ -82,7 +113,12 @@ internal static class RepoConventionsCli
 			RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 			ExternalCommandRunner = externalCommandRunner,
 		});
-		return await conventionRunner.RunAsync(configPath, parseResult.GetValue(openPrOption), cancellationToken);
+		bool? autoMerge = parseResult.GetValue(autoMergeOption)
+			? true
+			: parseResult.GetValue(noAutoMergeOption)
+				? false
+				: null;
+		return await conventionRunner.RunAsync(configPath, new ApplyCommandSettings(parseResult.GetValue(openPrOption), autoMerge, mergeMethod), cancellationToken);
 	}
 
 	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Argument<string> conventionPathArgument, string workingDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)

@@ -11,7 +11,7 @@ internal sealed class AddCommandTests
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
 		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
-		var references = ConventionConfiguration.Load(configurationPath);
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -36,7 +36,7 @@ internal sealed class AddCommandTests
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
 		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
-		var references = ConventionConfiguration.Load(configurationPath);
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -59,7 +59,7 @@ internal sealed class AddCommandTests
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
 		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
-		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml"));
+		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml")).Conventions;
 
 		using (Assert.EnterMultipleScope())
 		{

@@ -72,6 +72,65 @@ internal sealed class AddCommandTests
 	}
 
 	[Test]
+	public async Task AddModePreservesCommentsWhenAppendingConventionPath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			# leading comment
+			pull-request:
+			  auto-merge: true
+
+			conventions:
+			  # existing convention comment
+			  - path: ./conventions/existing
+			    settings:
+			      enabled: true
+
+			# trailing comment
+			""");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(updatedContents, Does.Contain("# leading comment"));
+			Assert.That(updatedContents, Does.Contain("# existing convention comment"));
+			Assert.That(updatedContents, Does.Contain("# trailing comment"));
+			Assert.That(updatedContents, Does.Contain("  - path: ./conventions/existing"));
+			Assert.That(updatedContents, Does.Contain("    settings:"));
+			Assert.That(updatedContents, Does.Contain("      enabled: true"));
+			Assert.That(updatedContents, Does.Contain("  - path: ./conventions/new"));
+			Assert.That(updatedContents.IndexOf("      enabled: true", StringComparison.Ordinal), Is.LessThan(updatedContents.IndexOf("  - path: ./conventions/new", StringComparison.Ordinal)));
+			Assert.That(updatedContents.IndexOf("  - path: ./conventions/new", StringComparison.Ordinal), Is.LessThan(updatedContents.IndexOf("# trailing comment", StringComparison.Ordinal)));
+		}
+	}
+
+	[Test]
+	public async Task AddModeExpandsEmptyFlowConventionsSequenceWithoutDroppingOtherText()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  auto-merge: true
+			conventions: [] # keep comment
+			""");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml")).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(updatedContents, Does.Contain("conventions:  # keep comment"));
+			Assert.That(updatedContents, Does.Contain("  - path: ./conventions/new"));
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(["./conventions/new"]));
+		}
+	}
+
+	[Test]
 	public async Task AddModeSucceedsEvenWhenRepositoryIsDirty()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

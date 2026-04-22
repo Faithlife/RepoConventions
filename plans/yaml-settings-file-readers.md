@@ -1,4 +1,4 @@
-# YAML Settings File Readers
+# YAML Settings File Reading
 
 ## Status
 
@@ -14,28 +14,27 @@ The initial motivating case is:
 conventions:
   - path: ./conventions/example
     settings:
-      text: ${{ readText(settings.foo.bar) }}
+      text: ${{ readText("./body.md") }}
 ```
 
 where the resolved file is read as UTF-8 text and assigned to `text`.
 
-This plan also covers `readJson` and `readYaml` so structured values can be loaded from files with the same relative-path and missing-value semantics.
-
 ## Goals
 
-- Support `${{ readText(expr) }}`, `${{ readJson(expr) }}`, and `${{ readYaml(expr) }}` in YAML-authored settings.
-- Allow `expr` to be either a dotted `settings.foo.bar` path or a JSON string literal such as `"./fragments/body.md"`.
+- Support `${{ readText(expr) }}` in YAML-authored settings.
+- Require `expr` to be a JSON string literal such as `"./fragments/body.md"`.
 - Resolve relative file paths against the directory containing the YAML file that authored the expression.
-- Preserve existing missing-value behavior: if the input property is missing, treat the function result as missing.
-- Treat a missing target file the same as a missing property.
-- Preserve typed replacement behavior for exact-value expressions so `readJson` and `readYaml` can produce objects, arrays, numbers, booleans, or null.
+- Fail if the target file is missing.
+- Strip a UTF-8 BOM when present and otherwise require UTF-8 text.
+- Prevent relative paths from escaping the repository root.
 - Keep the expression language intentionally small and validation errors explicit.
 
 ## Non-Goals
 
 - General-purpose expression syntax, operators, defaults, or conditionals.
-- Arbitrary functions beyond `readText`, `readJson`, and `readYaml` in this iteration.
+- Additional file-reader functions such as `readJson` or `readYaml` in this iteration.
 - File writes, globbing, directory traversal helpers, or environment-variable expansion.
+- `settings.` expressions as arguments to `readText`.
 - Supporting single-quoted string literals or non-JSON string literal syntax.
 
 ## Proposed Syntax
@@ -43,21 +42,16 @@ This plan also covers `readJson` and `readYaml` so structured values can be load
 Supported forms:
 
 ```text
-${{ readText(settings.foo.bar) }}
 ${{ readText("./body.md") }}
-${{ readJson(settings.templates.releaseNotes) }}
-${{ readJson("./data/release.json") }}
-${{ readYaml(settings.fragments.shared) }}
-${{ readYaml("../common/config.yml") }}
+${{ readText("../common/body.md") }}
+${{ readText("docs/release-notes.txt") }}
 ```
 
 Rules:
 
-- Function names are case-sensitive and initially limited to `readText`, `readJson`, and `readYaml`.
+- Function names are case-sensitive and initially limited to `readText`.
 - Each function accepts exactly one argument.
-- The argument is either:
-  - a `settings.` dotted property path using the existing segment rules, or
-  - a JSON string literal parsed with JSON escaping rules.
+- The argument must be a JSON string literal parsed with JSON escaping rules.
 - Optional whitespace is allowed inside `${{ ... }}` and around the function argument.
 - Nested function calls are not supported.
 - Additional arguments are not supported.
@@ -66,10 +60,10 @@ Examples that should remain invalid:
 
 ```text
 ${{ readText() }}
-${{ readText(settings.foo, settings.bar) }}
+${{ readText(settings.foo.bar) }}
 ${{ readText('body.md') }}
 ${{ readText(readText("a.txt")) }}
-${{ readText(settings.items[0]) }}
+${{ readJson("a.json") }}
 ```
 
 ## Scope Of Evaluation
@@ -83,53 +77,45 @@ This plan broadens evaluation so YAML-authored settings are processed consistent
 
 That keeps relative-path behavior coherent because every expression is evaluated with the path of the YAML file that contains it.
 
-`settings.foo.bar` lookups still require parent settings and remain meaningful primarily during composite expansion. File-reader functions, however, should work anywhere YAML settings are allowed.
-
 ## Path Resolution
 
 Every evaluation must know the absolute path of the YAML file currently being processed.
 
+Every relative-path check must also know the repository root so the implementation can reject relative paths that escape it.
+
 Path resolution rules:
 
-- If the function argument resolves to an absolute path, use it as-is.
-- If it resolves to a relative path, combine it with the directory containing the YAML file that authored the expression.
+- Parse the function argument as a JSON string literal.
+- If the parsed path is relative, combine it with the directory containing the YAML file that authored the expression.
 - Normalize the combined path before opening the file.
+- If the original argument was relative and the normalized result falls outside the repository root, fail.
+- Absolute paths are allowed as-is.
 - Do not resolve relative paths against the repository root, current working directory, or convention script directory.
 
 Examples:
 
 - In `.github/conventions.yml`, `${{ readText("./templates/pr.md") }}` reads `.github/templates/pr.md`.
-- In `.github/conventions/parent/convention.yml`, `${{ readYaml("../common/shared.yml") }}` resolves relative to `.github/conventions/parent`.
-- In `.github/conventions/parent/convention.yml`, `${{ readText(settings.paths.body) }}` uses the string value found in `settings.paths.body`, then resolves that path relative to `.github/conventions/parent` if it is not absolute.
+- In `.github/conventions/parent/convention.yml`, `${{ readText("../common/shared.md") }}` resolves relative to `.github/conventions/parent`.
+- In `.github/conventions/parent/convention.yml`, `${{ readText("../../../outside.txt") }}` fails if the normalized path escapes the repository root.
 
 ## Resolution Semantics
 
 ### Argument Resolution
 
 1. Parse the function call.
-2. Resolve the single argument.
-3. If the argument is a `settings.` path and that property is missing, the whole function result is missing.
-4. If the argument resolves to `null`, a non-string JSON value, or an object/array, fail with a clear validation error because a file path must resolve to a string.
-5. If the argument resolves to a string, treat that string as the file path.
+2. Parse the single argument as a JSON string literal.
+3. If parsing fails, report a validation error.
+4. Treat the parsed string as the file path.
 
 ### File Loading
 
-- `readText(path)` reads the target file as UTF-8 text and returns a string.
-- `readJson(path)` reads UTF-8 JSON and returns the parsed JSON value.
-- `readYaml(path)` reads UTF-8 YAML, converts it through the existing YAML-to-JSON pipeline, and returns the parsed JSON value.
+- `readText(path)` reads the target file as UTF-8 text, strips a leading UTF-8 BOM if present, and returns the resulting string.
 
 ### Missing Inputs
 
-The following cases all produce a missing result rather than a hard failure:
+There are no missing-input semantics for `readText` in this version.
 
-- the `settings.` argument path is missing
-- the resolved file path does not exist
-
-Missing results follow the existing exact-value semantics:
-
-- exact-value object property: omit the property
-- exact-value array item: omit the item
-- embedded string replacement: insert the empty string
+If the expression is present and the target file does not exist, evaluation fails.
 
 ### Invalid Inputs
 
@@ -137,59 +123,52 @@ The following cases should remain hard failures with a precise error message tha
 
 - invalid expression syntax
 - unsupported argument form
-- argument resolved to a non-string value
-- `readJson` target exists but contains invalid JSON
-- `readYaml` target exists but contains invalid YAML
-- traversal through a non-object value in a `settings.` path
+- malformed JSON string literal argument
+- target file does not exist
+- relative path escapes the repository root
+- file contents are not valid UTF-8 text
 
 ## Implementation Plan
 
 1. Generalize the current evaluator contract.
-Add an evaluation context object that carries the current YAML file path, its containing directory, the optional parent settings object, the source convention name, and the child convention path. Replace the current `expandCompositeSettings` boolean split in [src/RepoConventions/ConventionRunner.cs](../src/RepoConventions/ConventionRunner.cs) with one evaluator path that can always process YAML-authored expressions.
+Add an evaluation context object that carries the current YAML file path, its containing directory, the repository root, the source convention name, and the child convention path. Replace the current `expandCompositeSettings` boolean split in [src/RepoConventions/ConventionRunner.cs](../src/RepoConventions/ConventionRunner.cs) with one evaluator path that can always process YAML-authored expressions.
 
 2. Extend expression parsing in [src/RepoConventions/ConventionSettingsPropagator.cs](../src/RepoConventions/ConventionSettingsPropagator.cs).
-Keep the existing literal and exact-expression handling, but add a parsed representation for function-call expressions. Reuse the existing `settings.` path parser for dotted-property arguments and add a small JSON-string-literal parser for quoted path arguments.
+Keep the existing literal and exact-expression handling, but add a parsed representation for `readText` calls whose single argument is a JSON string literal. Reject `settings.` paths and any other argument form during parsing.
 
 3. Introduce a focused file-loading helper.
-Add a helper such as `ConventionSettingsFileReader` that takes the evaluation context plus a resolved string path and returns a `JsonNode?` result plus a missing/not-missing signal. Keep file I/O and format parsing out of the core string-segmentation logic so the evaluator remains testable.
+Add a helper such as `ConventionSettingsFileReader` that takes the evaluation context plus a string path, resolves it, enforces repository confinement for relative paths, reads BOM-stripped UTF-8 text, and returns a string value. Keep file I/O out of the core string-segmentation logic so the evaluator remains testable.
 
-4. Reuse existing YAML conversion rules.
-Implement `readYaml` by routing through the same YamlDotNet-to-JSON conversion pattern already used in [src/RepoConventions/ConventionConfiguration.cs](../src/RepoConventions/ConventionConfiguration.cs). That keeps YAML scalar and mapping behavior aligned with current configuration loading.
+4. Preserve exact-value and embedded-string behavior.
+For exact expressions, return the loaded text as a JSON string value. For embedded strings, insert the loaded text directly.
 
-5. Preserve exact-value and embedded-string behavior.
-For exact expressions, return the loaded value as its native JSON type. For embedded strings, allow `readText` to interpolate as text and stringify `readJson` or `readYaml` results the same way existing embedded expressions stringify structured values.
-
-6. Thread YAML file identity through recursive planning.
+5. Thread YAML file identity through recursive planning.
 When [src/RepoConventions/ConventionRunner.cs](../src/RepoConventions/ConventionRunner.cs) loads a nested `convention.yml`, pass that file path into subsequent settings evaluation so each file-reader expression resolves relative to the YAML file that contains it, not the original top-level config.
 
-7. Add targeted tests in [tests/RepoConventions.Tests/ConventionExecutionTests.cs](../tests/RepoConventions.Tests/ConventionExecutionTests.cs).
+6. Add targeted tests in [tests/RepoConventions.Tests/ConventionExecutionTests.cs](../tests/RepoConventions.Tests/ConventionExecutionTests.cs).
 Cover:
   - `readText` from a literal relative path
-  - `readText` from a `settings.` path
-  - `readJson` exact-value replacement preserving objects and arrays
-  - `readYaml` exact-value replacement preserving objects and arrays
   - relative-path resolution in top-level config versus nested composite config
-  - missing `settings.` argument path omitting the property
-  - missing target file omitting the property
-  - invalid JSON/YAML file contents failing before any convention is applied
-  - non-string resolved path value failing with a clear error
+  - missing target file failing before any convention is applied
+  - malformed JSON string literal argument failing with a clear error
+  - relative path escaping the repository root failing with a clear error
+  - UTF-8 BOM stripping
+  - invalid UTF-8 contents failing with a clear error
 
-8. Document the new syntax.
+7. Document the new syntax.
 Update the relevant user-facing docs after implementation so the supported expression forms, missing-file behavior, and YAML-relative path rule are explicit.
 
 ## Suggested Delivery Order
 
 1. Refactor the evaluator contract to carry configuration-file path context without changing behavior.
 2. Add parser support for function-call expressions plus tests for parse and validation failures.
-3. Implement `readText` and the missing-file semantics.
-4. Implement `readJson` and `readYaml` on top of the same helper.
+3. Implement `readText`, BOM-stripped UTF-8 loading, and missing-file failure.
+4. Add repository-confinement checks for relative paths.
 5. Add top-level and nested relative-path coverage.
 6. Update docs.
 
 ## Questions And Concerns
 
-- Scope question: should these file-reader functions work only during composite child-settings expansion, or everywhere YAML-authored settings are accepted? This plan assumes everywhere for consistency with the YAML-relative path requirement.
-- Embedded-string question: `readText` fits naturally inside larger strings, but `readJson` and `readYaml` only make sense there if JSON stringification is acceptable. If that feels too implicit, we should limit file-reader functions to exact-value expressions in the first version.
-- Type question: this plan treats a resolved non-string path value as an error, not as a missing value. That is stricter and should catch author mistakes earlier.
-- Encoding question: this plan assumes UTF-8 and does not attempt BOM detection beyond what the .NET text readers already handle. If broader encoding support matters, that should be called out explicitly.
-- Security question: this plan intentionally allows paths outside the repository when an absolute path or enough `..` segments are provided. If that is undesirable, we should decide on a confinement rule before implementation.
+- Repository-boundary concern: the implementation needs one stable definition of repository root for nested convention execution. It should use the root of the repo being processed, not the current working directory.
+- Absolute-path concern: this plan only forbids repository escape for relative paths. If absolute paths should also be blocked, that is a separate policy decision.
+- Embedded-string concern: multiline file content embedded into a larger scalar is allowed by this plan, which is simple but may surprise authors if they interpolate large files into short labels or messages.

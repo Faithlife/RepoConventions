@@ -51,6 +51,14 @@ internal sealed class TemporaryGitRepository : IDisposable
 		File.WriteAllText(fullPath, contents);
 	}
 
+	public void WriteFile(string relativePath, byte[] contents)
+	{
+		VerifyNotBare();
+		var fullPath = Path.Combine(RootPath, relativePath);
+		Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+		File.WriteAllBytes(fullPath, contents);
+	}
+
 	public bool FileExists(string relativePath) => File.Exists(Path.Combine(RootPath, relativePath));
 
 	public string GetRepositoryUri() => new Uri(RootPath + Path.DirectorySeparatorChar).AbsoluteUri;

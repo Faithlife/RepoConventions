@@ -1,13 +1,14 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace RepoConventions;
 
 internal static class ConventionSettingsPropagator
 {
-	public static JsonNode? Resolve(JsonNode? templateSettings, JsonNode? parentSettings, string compositeConventionName, string childConventionPath)
+	public static JsonNode? Resolve(JsonNode? templateSettings, ConventionSettingsEvaluationContext context)
 	{
-		var outcome = ResolveNode(templateSettings, parentSettings, "$", NodeContext.Root, compositeConventionName, childConventionPath);
+		var outcome = ResolveNode(templateSettings, context, "$", NodeContext.Root);
 		return outcome.Kind switch
 		{
 			ResolutionKind.Value => outcome.Value,
@@ -17,14 +18,14 @@ internal static class ConventionSettingsPropagator
 		};
 	}
 
-	private static ResolutionOutcome ResolveNode(JsonNode? templateNode, JsonNode? parentSettings, string location, NodeContext context, string compositeConventionName, string childConventionPath)
+	private static ResolutionOutcome ResolveNode(JsonNode? templateNode, ConventionSettingsEvaluationContext evaluationContext, string location, NodeContext nodeContext)
 	{
 		if (templateNode is JsonObject templateObject)
 		{
 			var resolvedObject = new JsonObject();
 			foreach (var property in templateObject)
 			{
-				var propertyOutcome = ResolveNode(property.Value, parentSettings, $"{location}.{property.Key}", NodeContext.ObjectProperty, compositeConventionName, childConventionPath);
+				var propertyOutcome = ResolveNode(property.Value, evaluationContext, $"{location}.{property.Key}", NodeContext.ObjectProperty);
 				if (propertyOutcome.Kind == ResolutionKind.Omit)
 					continue;
 
@@ -42,7 +43,7 @@ internal static class ConventionSettingsPropagator
 			var resolvedArray = new JsonArray();
 			for (var index = 0; index < templateArray.Count; index++)
 			{
-				var itemOutcome = ResolveNode(templateArray[index], parentSettings, $"{location}[{index}]", NodeContext.ArrayItem, compositeConventionName, childConventionPath);
+				var itemOutcome = ResolveNode(templateArray[index], evaluationContext, $"{location}[{index}]", NodeContext.ArrayItem);
 				switch (itemOutcome.Kind)
 				{
 					case ResolutionKind.Omit:
@@ -66,30 +67,30 @@ internal static class ConventionSettingsPropagator
 		}
 
 		if (templateNode is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var stringValue))
-			return ResolveStringValue(stringValue, parentSettings, location, context, compositeConventionName, childConventionPath);
+			return ResolveStringValue(stringValue, evaluationContext, location, nodeContext);
 
 		return ResolutionOutcome.FromValue(templateNode?.DeepClone());
 	}
 
-	private static ResolutionOutcome ResolveStringValue(string stringValue, JsonNode? parentSettings, string location, NodeContext context, string compositeConventionName, string childConventionPath)
+	private static ResolutionOutcome ResolveStringValue(string stringValue, ConventionSettingsEvaluationContext evaluationContext, string location, NodeContext nodeContext)
 	{
-		var segments = ParseSegments(stringValue, location, compositeConventionName, childConventionPath);
+		var segments = ParseSegments(stringValue, location, evaluationContext.SourceConventionName, evaluationContext.ChildConventionPath);
 		if (segments.Count == 0)
 			return ResolutionOutcome.FromValue(JsonValue.Create(stringValue));
 
 		if (segments.Count == 1 && segments[0] is ExpressionSegment exactExpression)
 		{
-			var exactResolution = ResolvePath(exactExpression.PathSegments, parentSettings, exactExpression.RawText, location, compositeConventionName, childConventionPath);
+			var exactResolution = ResolveExpression(exactExpression, evaluationContext, location);
 			if (exactResolution.IsMissing)
 			{
-				return context switch
+				return nodeContext switch
 				{
 					NodeContext.ObjectProperty or NodeContext.ArrayItem => ResolutionOutcome.Omit(),
 					_ => ResolutionOutcome.FromValue(null),
 				};
 			}
 
-			if (context == NodeContext.ArrayItem && exactResolution.Value is JsonArray exactArray)
+			if (nodeContext == NodeContext.ArrayItem && exactResolution.Value is JsonArray exactArray)
 				return ResolutionOutcome.Splice(exactArray.Select(static item => item?.DeepClone()).ToList());
 
 			return ResolutionOutcome.FromValue(exactResolution.Value?.DeepClone());
@@ -105,7 +106,7 @@ internal static class ConventionSettingsPropagator
 					break;
 
 				case ExpressionSegment expression:
-					var expressionResolution = ResolvePath(expression.PathSegments, parentSettings, expression.RawText, location, compositeConventionName, childConventionPath);
+					var expressionResolution = ResolveExpression(expression, evaluationContext, location);
 					if (expressionResolution.IsMissing)
 						break;
 
@@ -151,23 +152,31 @@ internal static class ConventionSettingsPropagator
 				throw CreateResolutionException(compositeConventionName, childConventionPath, location, value[expressionStart..], "Unterminated settings expression.");
 
 			var rawExpression = value[expressionStart..(expressionEnd + 2)];
-			segments.Add(new ExpressionSegment(rawExpression, ParsePathSegments(rawExpression, location, compositeConventionName, childConventionPath)));
+			segments.Add(new ExpressionSegment(rawExpression, ParseExpression(rawExpression, location, compositeConventionName, childConventionPath)));
 			index = expressionEnd + 2;
 		}
 
 		return segments;
 	}
 
-	private static string[] ParsePathSegments(string rawExpression, string location, string compositeConventionName, string childConventionPath)
+	private static TemplateExpression ParseExpression(string rawExpression, string location, string compositeConventionName, string childConventionPath)
 	{
 		if (!rawExpression.StartsWith("${{", StringComparison.Ordinal) || !rawExpression.EndsWith("}}", StringComparison.Ordinal))
 			throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "Unsupported settings expression syntax.");
 
 		var expressionBody = rawExpression[3..^2].Trim();
-		const string settingsPrefix = "settings.";
-		if (!expressionBody.StartsWith(settingsPrefix, StringComparison.Ordinal))
-			throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "Settings expressions must start with 'settings.'.");
+		if (expressionBody.StartsWith("settings.", StringComparison.Ordinal))
+			return new SettingsPathExpression(ParsePathSegments(expressionBody, rawExpression, location, compositeConventionName, childConventionPath));
 
+		if (expressionBody.StartsWith("readText", StringComparison.Ordinal))
+			return new ReadTextExpression(ParseReadTextPath(expressionBody, rawExpression, location, compositeConventionName, childConventionPath));
+
+		throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "Unsupported settings expression syntax.");
+	}
+
+	private static string[] ParsePathSegments(string expressionBody, string rawExpression, string location, string compositeConventionName, string childConventionPath)
+	{
+		const string settingsPrefix = "settings.";
 		var path = expressionBody[settingsPrefix.Length..];
 		if (string.IsNullOrWhiteSpace(path))
 			throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "Settings expressions must include at least one property name after 'settings.'.");
@@ -187,29 +196,80 @@ internal static class ConventionSettingsPropagator
 		return segments;
 	}
 
-	private static PathResolution ResolvePath(IReadOnlyList<string> pathSegments, JsonNode? parentSettings, string rawExpression, string location, string compositeConventionName, string childConventionPath)
+	private static string ParseReadTextPath(string expressionBody, string rawExpression, string location, string compositeConventionName, string childConventionPath)
 	{
-		if (parentSettings is null)
+		const string functionName = "readText";
+		var remainder = expressionBody[functionName.Length..].TrimStart();
+		if (remainder.Length < 2 || remainder[0] != '(' || remainder[^1] != ')')
+			throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "readText expressions must use the form readText(\"path\").");
+
+		var argumentText = remainder[1..^1].Trim();
+		if (argumentText.Length == 0)
+			throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "readText requires a JSON string literal path argument.");
+
+		try
+		{
+			var path = JsonSerializer.Deserialize<string>(argumentText)
+				?? throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "readText requires a JSON string literal path argument.");
+			return path;
+		}
+		catch (JsonException ex)
+		{
+			throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, "readText requires a JSON string literal path argument.", ex);
+		}
+	}
+
+	private static PathResolution ResolveExpression(ExpressionSegment expression, ConventionSettingsEvaluationContext context, string location)
+	{
+		return expression.Expression switch
+		{
+			SettingsPathExpression settingsPath => ResolveSettingsPath(settingsPath.PathSegments, context, expression.RawText, location),
+			ReadTextExpression readText => ResolveReadText(readText.Path, context, expression.RawText, location),
+			_ => throw new InvalidOperationException($"Unsupported expression type '{expression.Expression.GetType().Name}'."),
+		};
+	}
+
+	private static PathResolution ResolveSettingsPath(IReadOnlyList<string> pathSegments, ConventionSettingsEvaluationContext context, string rawExpression, string location)
+	{
+		if (!context.EnableSettingsExpressions)
+			return PathResolution.Found(JsonValue.Create(rawExpression));
+
+		if (context.ParentSettings is null)
 			return PathResolution.Missing();
 
-		JsonNode? current = parentSettings;
+		JsonNode? current = context.ParentSettings;
 		for (var index = 0; index < pathSegments.Count; index++)
 		{
 			if (current is not JsonObject currentObject)
-				throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, $"Cannot continue through non-object value at 'settings.{string.Join('.', pathSegments.Take(index))}'.");
+				throw CreateResolutionException(context.SourceConventionName, context.ChildConventionPath, location, rawExpression, $"Cannot continue through non-object value at 'settings.{string.Join('.', pathSegments.Take(index))}'.");
 
 			if (!currentObject.TryGetPropertyValue(pathSegments[index], out current))
 				return PathResolution.Missing();
 
 			if (index < pathSegments.Count - 1 && current is not JsonObject)
-				throw CreateResolutionException(compositeConventionName, childConventionPath, location, rawExpression, $"Cannot continue through non-object value at 'settings.{string.Join('.', pathSegments.Take(index + 1))}'.");
+				throw CreateResolutionException(context.SourceConventionName, context.ChildConventionPath, location, rawExpression, $"Cannot continue through non-object value at 'settings.{string.Join('.', pathSegments.Take(index + 1))}'.");
 		}
 
 		return PathResolution.Found(current);
 	}
 
+	private static PathResolution ResolveReadText(string path, ConventionSettingsEvaluationContext context, string rawExpression, string location)
+	{
+		try
+		{
+			return PathResolution.Found(JsonValue.Create(ConventionSettingsFileReader.ReadText(context, path)));
+		}
+		catch (InvalidOperationException ex)
+		{
+			throw CreateResolutionException(context.SourceConventionName, context.ChildConventionPath, location, rawExpression, ex.Message, ex);
+		}
+	}
+
 	private static InvalidOperationException CreateResolutionException(string compositeConventionName, string childConventionPath, string location, string rawExpression, string reason) =>
 		new($"Failed to resolve child settings for convention '{childConventionPath}' in composite '{compositeConventionName}' at '{location}' for expression '{rawExpression}': {reason}");
+
+	private static InvalidOperationException CreateResolutionException(string compositeConventionName, string childConventionPath, string location, string rawExpression, string reason, Exception innerException) =>
+		new($"Failed to resolve child settings for convention '{childConventionPath}' in composite '{compositeConventionName}' at '{location}' for expression '{rawExpression}': {reason}", innerException);
 
 	private enum NodeContext
 	{
@@ -229,7 +289,13 @@ internal static class ConventionSettingsPropagator
 
 	private sealed record LiteralSegment(string Text) : TemplateSegment;
 
-	private sealed record ExpressionSegment(string RawText, IReadOnlyList<string> PathSegments) : TemplateSegment;
+	private sealed record ExpressionSegment(string RawText, TemplateExpression Expression) : TemplateSegment;
+
+	private abstract record TemplateExpression;
+
+	private sealed record SettingsPathExpression(IReadOnlyList<string> PathSegments) : TemplateExpression;
+
+	private sealed record ReadTextExpression(string Path) : TemplateExpression;
 
 	private sealed record PathResolution(JsonNode? Value, bool IsMissing)
 	{

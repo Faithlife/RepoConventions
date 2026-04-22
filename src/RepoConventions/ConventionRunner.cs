@@ -63,6 +63,7 @@ internal sealed class ConventionRunner
 	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		JsonNode? effectiveSettings;
+		ResolvedConvention resolvedConvention;
 		try
 		{
 			effectiveSettings = ConventionSettingsPropagator.Resolve(
@@ -74,6 +75,9 @@ internal sealed class ConventionRunner
 					enableSettingsExpressions,
 					sourceConventionName ?? "top-level",
 					reference.Path));
+
+			var containingDirectory = Path.GetDirectoryName(configurationPath)!;
+			resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		}
 		catch (InvalidOperationException ex)
 		{
@@ -81,8 +85,6 @@ internal sealed class ConventionRunner
 			return false;
 		}
 
-		var containingDirectory = Path.GetDirectoryName(configurationPath)!;
-		var resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		if (activeConventions.Contains(resolvedConvention.Identity))
 		{
 			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: skipped (cycle detected).");
@@ -233,16 +235,19 @@ internal sealed class ConventionRunner
 
 	private async Task<ResolvedConvention> ResolveConventionAsync(string conventionPath, string containingDirectory, CancellationToken cancellationToken)
 	{
+		var repositoryRoot = GetContainingRepositoryRoot(containingDirectory);
+
 		if (conventionPath.StartsWith('/'))
 		{
-			var directoryPath = Path.Combine(m_settings.TargetRepositoryRoot, conventionPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+			var relativeConventionPath = conventionPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+			var directoryPath = ResolveLocalConventionDirectoryPath(repositoryRoot, relativeConventionPath, repositoryRoot);
 			var name = new DirectoryInfo(directoryPath).Name;
 			return new ResolvedConvention(directoryPath, name, directoryPath, GetTargetRepositoryRelativePath(directoryPath), null);
 		}
 
 		if (conventionPath.StartsWith("./", StringComparison.Ordinal) || conventionPath.StartsWith("../", StringComparison.Ordinal))
 		{
-			var directoryPath = Path.GetFullPath(Path.Combine(containingDirectory, conventionPath));
+			var directoryPath = ResolveLocalConventionDirectoryPath(containingDirectory, conventionPath, repositoryRoot);
 			var name = new DirectoryInfo(directoryPath).Name;
 
 			if (TryGetRemoteCloneContext(directoryPath, out var remoteRepository, out var remoteCloneRoot))
@@ -978,6 +983,31 @@ internal sealed class ConventionRunner
 	}
 
 	private static string NormalizeGitHubPath(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
+
+	private string GetContainingRepositoryRoot(string containingDirectory) =>
+		TryGetRemoteCloneContext(containingDirectory, out _, out var cloneRoot)
+			? Path.GetFullPath(cloneRoot)
+			: Path.GetFullPath(m_settings.TargetRepositoryRoot);
+
+	private static string ResolveLocalConventionDirectoryPath(string baseDirectory, string conventionPath, string repositoryRoot)
+	{
+		var directoryPath = Path.GetFullPath(Path.Combine(baseDirectory, conventionPath));
+		if (!IsWithinRepositoryRoot(directoryPath, repositoryRoot))
+			throw new InvalidOperationException($"Resolved convention path '{directoryPath}' escapes the repository root '{repositoryRoot}'.");
+
+		return directoryPath;
+	}
+
+	private static bool IsWithinRepositoryRoot(string path, string repositoryRoot)
+	{
+		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+		var normalizedRoot = Path.TrimEndingDirectorySeparator(repositoryRoot);
+		if (string.Equals(path, normalizedRoot, comparison))
+			return true;
+
+		return path.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, comparison)
+			|| path.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, comparison);
+	}
 
 	private string GetTargetRepositoryRelativePath(string directoryPath) => NormalizeGitHubPath(Path.GetRelativePath(m_settings.TargetRepositoryRoot, directoryPath));
 

@@ -517,6 +517,47 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeFailsWhenLocalConventionPathEscapesContainingRepositoryRoot()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var repoParentPath = Directory.GetParent(repo.RootPath)!.FullName;
+		var outsideConventionName = $"outside-{Guid.NewGuid():N}";
+		var outsideConventionPath = Path.Combine(repoParentPath, outsideConventionName);
+		Directory.CreateDirectory(outsideConventionPath);
+
+		try
+		{
+			File.WriteAllText(
+				Path.Combine(outsideConventionPath, "convention.ps1"),
+				"""
+				param([string] $configPath)
+				Set-Content -Path (Join-Path $PWD 'should-not-exist.txt') -Value 'unexpected'
+				""");
+			repo.WriteFile(".github/conventions.yml", """
+				conventions:
+				- path: ./conventions/parent
+				""");
+			repo.WriteFile(
+				".github/conventions/parent/convention.yml",
+				$"conventions:{Environment.NewLine}- path: ../../../../{outsideConventionName}{Environment.NewLine}");
+			await repo.CommitAllAsync("Initial commit.");
+
+			var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Not.Zero);
+				Assert.That(result.StandardError, Does.Contain("escapes the repository root"));
+				Assert.That(repo.FileExists("should-not-exist.txt"), Is.False);
+			}
+		}
+		finally
+		{
+			Directory.Delete(outsideConventionPath, recursive: true);
+		}
+	}
+
+	[Test]
 	public async Task CommitModeFailsWhenReadTextUsesNativeAbsolutePath()
 	{
 		if (!OperatingSystem.IsWindows())
@@ -929,6 +970,40 @@ internal sealed class ConventionExecutionTests
 			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent)\nCreated 1 commit for convention child.\n\nConvention parent\n"));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention parent."));
 			Assert.That(await repo.GetRecentCommitMessagesAsync(2), Is.EqualTo(s_parentThenChildCommitMessages));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeSupportsRepositoryRootRelativeConventionPathsWithinRemoteCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/parent/convention.yml", """
+			conventions:
+			- path: /conventions/root-relative-child
+			""");
+		remoteRepo.WriteFile("conventions/root-relative-child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'remote-root-relative.txt') -Value 'created'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/parent@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["apply"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("remote-root-relative.txt"), Is.True);
+			Assert.That(result.StandardOutput, Does.Contain("Convention root-relative-child"));
 		}
 	}
 

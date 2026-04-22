@@ -7,3 +7,5 @@
 - For YAML deserialization in C#, prefer converting YAML to JSON first and then using `System.Text.Json`.
 - For test visibility, prefer the modern csproj-based `InternalsVisibleTo` item syntax over `AssemblyInfo.cs` or generic assembly-attribute items.
 - Prefer simple integration-style tests over mocks when the behavior can be exercised with temporary files, processes, or git repositories.
+
+

@@ -527,7 +527,7 @@ internal sealed class ConventionExecutionTests
 
 		try
 		{
-			File.WriteAllText(
+			await File.WriteAllTextAsync(
 				Path.Combine(outsideConventionPath, "convention.ps1"),
 				"""
 				param([string] $configPath)

@@ -1,2 +1,3 @@
 conventions:
+- path: LogosBible/actions/conventions/repo-conventions-workflow
 - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk10

@@ -127,6 +127,8 @@ internal sealed class OpenPrTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(fakeGh.CountCalls("label", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("label", "create"), Is.EqualTo(3));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1 (labels: automation, dependencies; reviewers: octocat, my-org/build-team, my-org/dotnet-team; assignees: octocat, hubot)"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("labels: repo-conventions"));
 			Assert.That(createInvocation, Does.Contain("--label"));
 			Assert.That(createInvocation, Does.Contain("repo-conventions"));
 			Assert.That(createInvocation, Does.Contain("automation"));
@@ -180,8 +182,9 @@ internal sealed class OpenPrTests
 			Assert.That(createInvocation, Does.Not.Contain("--reviewer"));
 			Assert.That(createInvocation, Does.Not.Contain("--assignee"));
 			Assert.That(mergeInvocation, Does.Contain("--squash"));
-			Assert.That(result.StandardOutput, Does.Contain("Pull request reviewers: skipped for auto-merge"));
-			Assert.That(result.StandardOutput, Does.Contain("Pull request assignees: skipped for auto-merge"));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1 (auto-merge, squash)"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("reviewers:"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("assignees:"));
 		}
 	}
 
@@ -215,7 +218,7 @@ internal sealed class OpenPrTests
 			Assert.That(fakeGh.CountCalls("pr", "merge"), Is.EqualTo(1));
 			Assert.That(mergeInvocation, Does.Contain("--squash"));
 			Assert.That(mergeInvocation, Does.Not.Contain("--rebase"));
-			Assert.That(result.StandardOutput, Does.Contain("fallback method: squash"));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1 (auto-merge, squash, rebase disabled)"));
 		}
 	}
 
@@ -355,6 +358,7 @@ internal sealed class OpenPrTests
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.False);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request"));
 		}
 	}
 

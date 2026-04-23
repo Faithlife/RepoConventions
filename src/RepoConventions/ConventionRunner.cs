@@ -405,7 +405,6 @@ internal sealed class ConventionRunner
 		var targetRepositoryUrl = repositoryInfo.Url;
 		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName);
 		var behavior = BuildPullRequestBehavior(repositoryPullRequestSettings, appliedConventions, applySettings);
-		await WritePullRequestBehaviorSummaryAsync(behavior);
 		if (pullRequest.HasOpenPullRequest)
 			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, body, behavior, repositoryInfo, cancellationToken);
 
@@ -428,15 +427,15 @@ internal sealed class ConventionRunner
 		}
 
 		var pullRequestUrl = ExtractGitHubPullRequestUrl(createResult.StandardOutput, createResult.StandardError);
-		if (pullRequestUrl is not null)
-			await m_settings.StandardOutput.WriteLineAsync($"Opened pull request: {pullRequestUrl}");
-		else
-			await m_settings.StandardOutput.WriteLineAsync("Opened pull request.");
-
 		if (pullRequestUrl is null)
+		{
+			await m_settings.StandardOutput.WriteLineAsync("Opened pull request.");
 			return 0;
+		}
 
-		return await CompleteAutoMergeStepAsync(pullRequestUrl, behavior, repositoryInfo, cancellationToken);
+		var autoMergeOutcome = await CompleteAutoMergeStepAsync(pullRequestUrl, behavior, repositoryInfo, cancellationToken);
+		await WritePullRequestAnnouncementAsync("Opened pull request", pullRequestUrl, behavior, autoMergeOutcome);
+		return autoMergeOutcome.ExitCode;
 	}
 
 	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, string pullRequestBody, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
@@ -476,35 +475,29 @@ internal sealed class ConventionRunner
 		if (!await EnsurePullRequestMetadataAsync(pullRequest.PullRequestUrl, behavior, cancellationToken))
 			return 1;
 
-		var autoMergeResult = await CompleteAutoMergeStepAsync(pullRequest.PullRequestUrl, behavior, repositoryInfo, cancellationToken);
-		if (autoMergeResult != 0)
-			return autoMergeResult;
-
-		if (commitsChanged || bodyChanged)
+		var autoMergeOutcome = await CompleteAutoMergeStepAsync(pullRequest.PullRequestUrl, behavior, repositoryInfo, cancellationToken);
+		var shouldReportPullRequest = commitsChanged || bodyChanged || ShouldReportPullRequestAnnouncement(behavior, autoMergeOutcome);
+		if (shouldReportPullRequest)
 		{
-			await m_settings.StandardOutput.WriteLineAsync($"Updated pull request: {pullRequest.PullRequestUrl}");
-			return 0;
+			await WritePullRequestAnnouncementAsync("Updated pull request", pullRequest.PullRequestUrl, behavior, autoMergeOutcome);
+			return autoMergeOutcome.ExitCode;
 		}
 
-		await m_settings.StandardOutput.WriteLineAsync($"Pull request: {pullRequest.PullRequestUrl}");
-		return 0;
+		return autoMergeOutcome.ExitCode;
 	}
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
 	{
 		var contributingConventions = appliedConventions.Where(static x => x.CreatedCommitCount > 0).ToList();
 
-		var autoMergeSource = "default";
 		bool autoMergeEnabled;
 		if (applySettings.AutoMerge is { } cliAutoMerge)
 		{
 			autoMergeEnabled = cliAutoMerge;
-			autoMergeSource = "cli";
 		}
 		else if (repositoryPullRequestSettings?.AutoMerge is { } repositoryAutoMerge)
 		{
 			autoMergeEnabled = repositoryAutoMerge;
-			autoMergeSource = "repository config";
 		}
 		else
 		{
@@ -516,17 +509,14 @@ internal sealed class ConventionRunner
 			if (explicitConventionAutoMerge.Contains(false))
 			{
 				autoMergeEnabled = false;
-				autoMergeSource = "explicit convention config";
 			}
 			else if (explicitConventionAutoMerge.Contains(true))
 			{
 				autoMergeEnabled = true;
-				autoMergeSource = "explicit convention config";
 			}
 			else if (contributingConventions.Count > 0 && contributingConventions.All(static x => !x.HasExecutableScript))
 			{
 				autoMergeEnabled = true;
-				autoMergeSource = "inferred convention defaults";
 			}
 			else
 			{
@@ -565,25 +555,43 @@ internal sealed class ConventionRunner
 			AddUniqueRange(assignees, contributingConventions.SelectMany(static x => x.PullRequest?.Assignees ?? []), StringComparer.OrdinalIgnoreCase);
 		}
 
-		return new PullRequestBehavior(labels, reviewers, assignees, autoMergeEnabled, autoMergeSource, desiredMergeMethod, mergeMethodConflictFallback, applySettings.AutoMerge is true);
+		return new PullRequestBehavior(labels, reviewers, assignees, autoMergeEnabled, desiredMergeMethod, mergeMethodConflictFallback, applySettings.AutoMerge is true);
 	}
 
-	private async Task WritePullRequestBehaviorSummaryAsync(PullRequestBehavior behavior)
+	private async Task WritePullRequestAnnouncementAsync(string message, string pullRequestUrl, PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome)
 	{
-		await m_settings.StandardOutput.WriteLineAsync($"Pull request labels: {string.Join(", ", behavior.Labels)}");
-		await m_settings.StandardOutput.WriteLineAsync(behavior.AutoMergeEnabled
-			? "Pull request reviewers: skipped for auto-merge"
-			: $"Pull request reviewers: {FormatSummaryList(behavior.Reviewers)}");
-		await m_settings.StandardOutput.WriteLineAsync(behavior.AutoMergeEnabled
-			? "Pull request assignees: skipped for auto-merge"
-			: $"Pull request assignees: {FormatSummaryList(behavior.Assignees)}");
-		await m_settings.StandardOutput.WriteLineAsync($"Pull request auto-merge: {(behavior.AutoMergeEnabled ? "enabled" : "disabled")} (desired: {behavior.DesiredMergeMethod}, source: {behavior.AutoMergeSource})");
+		var details = BuildPullRequestAnnouncementDetails(behavior, autoMergeOutcome);
+		var suffix = details.Count == 0 ? "" : $" ({string.Join("; ", details)})";
+		await m_settings.StandardOutput.WriteLineAsync($"{message}: {pullRequestUrl}{suffix}");
+	}
+
+	private static bool ShouldReportPullRequestAnnouncement(PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome) =>
+		BuildPullRequestAnnouncementDetails(behavior, autoMergeOutcome).Count != 0;
+
+	private static List<string> BuildPullRequestAnnouncementDetails(PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome)
+	{
+		var details = new List<string>();
+
+		var reportedLabels = behavior.Labels
+			.Where(static x => !string.Equals(x, c_repoConventionsLabel, StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		if (reportedLabels.Count != 0)
+			details.Add($"labels: {string.Join(", ", reportedLabels)}");
+
+		if (!behavior.AutoMergeEnabled && behavior.Reviewers.Count != 0)
+			details.Add($"reviewers: {string.Join(", ", behavior.Reviewers)}");
+
+		if (!behavior.AutoMergeEnabled && behavior.Assignees.Count != 0)
+			details.Add($"assignees: {string.Join(", ", behavior.Assignees)}");
+
+		if (!string.IsNullOrWhiteSpace(autoMergeOutcome.Summary))
+			details.Add(autoMergeOutcome.Summary);
 
 		if (behavior.MergeMethodConflictFallback)
-			await m_settings.StandardOutput.WriteLineAsync("Pull request merge method: falling back to squash because contributing conventions disagreed.");
-	}
+			details.Add("merge method conflict; defaulted to squash");
 
-	private static string FormatSummaryList(IReadOnlyList<string> values) => values.Count == 0 ? "none" : string.Join(", ", values);
+		return details;
+	}
 
 	private static List<string> BuildCreatePullRequestArguments(PullRequestPreparation pullRequest, string body, PullRequestBehavior behavior)
 	{
@@ -707,52 +715,83 @@ internal sealed class ConventionRunner
 		return false;
 	}
 
-	private async Task<int> CompleteAutoMergeStepAsync(string pullRequestUrl, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
+	private async Task<AutoMergeOutcome> CompleteAutoMergeStepAsync(string pullRequestUrl, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
 	{
 		if (!behavior.AutoMergeEnabled)
-			return 0;
+			return AutoMergeOutcome.NotUsed();
 
 		if (repositoryInfo.AutoMergeAllowed is false)
-			return await HandleAutoMergeFailureAsync(pullRequestUrl, behavior.AutoMergeRequestedExplicitly, "Auto-merge is not enabled for this repository.");
+			return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, "Auto-merge is not enabled for this repository.", "auto-merge, unavailable");
 
 		var attemptedMethods = new HashSet<string>(StringComparer.Ordinal);
+		string? fallbackReason = null;
 		foreach (var method in GetMergeMethodAttemptOrder(behavior.DesiredMergeMethod))
 		{
 			if (!attemptedMethods.Add(method))
 				continue;
 
 			if (!IsMergeMethodAllowed(repositoryInfo, method))
+			{
+				fallbackReason ??= $"{FormatMergeMethodSummary(method)} disabled";
 				continue;
+			}
 
 			var result = await TryEnableAutoMergeAsync(pullRequestUrl, method, cancellationToken);
 			if (result.Succeeded)
-			{
-				var message = method == behavior.DesiredMergeMethod
-					? $"Pull request auto-merge enabled with method: {method}"
-					: $"Pull request auto-merge enabled with fallback method: {method}";
-				await m_settings.StandardOutput.WriteLineAsync(message);
-				return 0;
-			}
+				return AutoMergeOutcome.Success(method, fallbackReason);
 
 			if (!result.ShouldTryNextMethod)
-				return await HandleAutoMergeFailureAsync(pullRequestUrl, behavior.AutoMergeRequestedExplicitly, result.ErrorMessage);
+				return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, result.ErrorMessage, BuildAutoMergeFailureSummary(fallbackReason, result.ErrorMessage));
+
+			fallbackReason ??= SummarizeAutoMergeError(method, result.ErrorMessage);
 		}
 
-		return await HandleAutoMergeFailureAsync(pullRequestUrl, behavior.AutoMergeRequestedExplicitly, $"Could not enable auto-merge using any allowed merge method for {pullRequestUrl}.");
+		return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, $"Could not enable auto-merge using any allowed merge method for {pullRequestUrl}.", BuildAutoMergeFailureSummary(fallbackReason, null));
 	}
 
-	private async Task<int> HandleAutoMergeFailureAsync(string pullRequestUrl, bool failCommand, string message)
+	private async Task<AutoMergeOutcome> HandleAutoMergeFailureAsync(bool failCommand, string message, string summary)
 	{
 		if (failCommand)
 		{
 			await m_settings.StandardError.WriteLineAsync(message);
-			return 1;
+			return AutoMergeOutcome.Failed(summary);
 		}
 
-		await m_settings.StandardOutput.WriteLineAsync($"Warning: {message}");
-		await m_settings.StandardOutput.WriteLineAsync($"Pull request: {pullRequestUrl}");
-		return 0;
+		return AutoMergeOutcome.Warning(summary);
 	}
+
+	private static string BuildAutoMergeFailureSummary(string? fallbackReason, string? errorMessage)
+	{
+		var reason = fallbackReason ?? SummarizeAutoMergeError(errorMessage);
+		return string.IsNullOrWhiteSpace(reason) ? "auto-merge failed" : $"auto-merge, {reason}";
+	}
+
+	private static string SummarizeAutoMergeError(string method, string errorMessage)
+	{
+		var summary = SummarizeAutoMergeError(errorMessage);
+		return string.IsNullOrWhiteSpace(summary) ? $"{FormatMergeMethodSummary(method)} failed" : summary;
+	}
+
+	private static string SummarizeAutoMergeError(string? errorMessage)
+	{
+		if (string.IsNullOrWhiteSpace(errorMessage))
+			return "";
+
+		var summary = errorMessage.Trim();
+		var newlineIndex = summary.IndexOfAny(['\r', '\n']);
+		if (newlineIndex >= 0)
+			summary = summary[..newlineIndex];
+
+		return summary.TrimEnd('.', ' ');
+	}
+
+	private static string FormatMergeMethodSummary(string method) => method switch
+	{
+		"merge" => "merge commit",
+		"squash" => "squash",
+		"rebase" => "rebase",
+		_ => method,
+	};
 
 	private async Task<AutoMergeAttemptResult> TryEnableAutoMergeAsync(string pullRequestUrl, string method, CancellationToken cancellationToken)
 	{
@@ -1122,7 +1161,24 @@ internal sealed class ConventionRunner
 
 	private sealed record AppliedConvention(string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, int CreatedCommitCount);
 
-	private sealed record PullRequestBehavior(IReadOnlyList<string> Labels, IReadOnlyList<string> Reviewers, IReadOnlyList<string> Assignees, bool AutoMergeEnabled, string AutoMergeSource, string DesiredMergeMethod, bool MergeMethodConflictFallback, bool AutoMergeRequestedExplicitly);
+	private sealed record PullRequestBehavior(IReadOnlyList<string> Labels, IReadOnlyList<string> Reviewers, IReadOnlyList<string> Assignees, bool AutoMergeEnabled, string DesiredMergeMethod, bool MergeMethodConflictFallback, bool AutoMergeRequestedExplicitly);
+
+	private sealed record AutoMergeOutcome(int ExitCode, string? Summary)
+	{
+		public static AutoMergeOutcome Failed(string summary) => new(1, summary);
+
+		public static AutoMergeOutcome NotUsed() => new(0, null);
+
+		public static AutoMergeOutcome Success(string method, string? fallbackReason)
+		{
+			var summary = string.IsNullOrWhiteSpace(fallbackReason)
+				? $"auto-merge, {FormatMergeMethodSummary(method)}"
+				: $"auto-merge, {FormatMergeMethodSummary(method)}, {fallbackReason}";
+			return new(0, summary);
+		}
+
+		public static AutoMergeOutcome Warning(string summary) => new(0, summary);
+	}
 
 	private sealed record AutoMergeAttemptResult(bool Succeeded, bool ShouldTryNextMethod, string ErrorMessage)
 	{

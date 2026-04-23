@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using NUnit.Framework;
 
 namespace RepoConventions.Tests;
@@ -362,6 +364,274 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeReadsTextFromTopLevelYamlSettings()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText("./body.txt") }}
+			    message: prefix-${{ readText("./name.txt") }}-suffix
+			""");
+		repo.WriteFile(".github/body.txt", "body text");
+		repo.WriteFile(".github/name.txt", "repo");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"text\":\"body text\""));
+			Assert.That(settingsJson, Does.Contain("\"message\":\"prefix-repo-suffix\""));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeReadsTextRelativeToNestedCompositeYaml()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../write-settings
+			  settings:
+			    text: ${{ readText("./body.txt") }}
+			""");
+		repo.WriteFile(".github/conventions/parent/body.txt", "nested body");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"text\":\"nested body\""));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeReadsTextFromRepositoryRootRelativePath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText("/docs/body.txt") }}
+			""");
+		repo.WriteFile("docs/body.txt", "root body");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"text\":\"root body\""));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenReadTextFileIsMissingBeforeApplyingAnyConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/good
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText("./missing.txt") }}
+			""");
+		repo.WriteFile(".github/conventions/good/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'good.txt') -Value 'good'
+			""");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(repo.FileExists("good.txt"), Is.False);
+			Assert.That(repo.FileExists("settings.json"), Is.False);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Initial commit."));
+			Assert.That(result.StandardError, Does.Contain("missing.txt"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenReadTextArgumentIsNotJsonStringLiteral()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText(settings.foo.bar) }}
+			""");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("JSON string literal path argument"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenReadTextEscapesRepositoryRoot()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText("../../outside.txt") }}
+			""");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("escapes the repository root"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenLocalConventionPathEscapesContainingRepositoryRoot()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var repoParentPath = Directory.GetParent(repo.RootPath)!.FullName;
+		var outsideConventionName = $"outside-{Guid.NewGuid():N}";
+		var outsideConventionPath = Path.Combine(repoParentPath, outsideConventionName);
+		Directory.CreateDirectory(outsideConventionPath);
+
+		try
+		{
+			await File.WriteAllTextAsync(
+				Path.Combine(outsideConventionPath, "convention.ps1"),
+				"""
+				param([string] $configPath)
+				Set-Content -Path (Join-Path $PWD 'should-not-exist.txt') -Value 'unexpected'
+				""");
+			repo.WriteFile(".github/conventions.yml", """
+				conventions:
+				- path: ./conventions/parent
+				""");
+			repo.WriteFile(
+				".github/conventions/parent/convention.yml",
+				$"conventions:{Environment.NewLine}- path: ../../../../{outsideConventionName}{Environment.NewLine}");
+			await repo.CommitAllAsync("Initial commit.");
+
+			var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Not.Zero);
+				Assert.That(result.StandardError, Does.Contain("escapes the repository root"));
+				Assert.That(repo.FileExists("should-not-exist.txt"), Is.False);
+			}
+		}
+		finally
+		{
+			Directory.Delete(outsideConventionPath, recursive: true);
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenReadTextUsesNativeAbsolutePath()
+	{
+		if (!OperatingSystem.IsWindows())
+			Assert.Ignore("Drive-root absolute paths are Windows-specific.");
+
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var absolutePathLiteral = JsonSerializer.Serialize(Path.Combine(Path.GetTempPath(), "outside.txt"));
+		repo.WriteFile(
+			".github/conventions.yml",
+			"conventions:\n"
+			+ "- path: ./conventions/write-settings\n"
+			+ "  settings:\n"
+			+ $"    text: ${{{{ readText({absolutePathLiteral}) }}}}\n");
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("Native absolute path"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeStripsUtf8BomWhenReadingText()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText("./body.txt") }}
+			""");
+		repo.WriteFile(".github/body.txt", [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("bom text")]);
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"text\":\"bom text\""));
+			Assert.That(settingsJson, Does.Not.Contain("\\uFEFF"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenReadTextFileIsNotUtf8()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-settings
+			  settings:
+			    text: ${{ readText("./body.txt") }}
+			""");
+		repo.WriteFile(".github/body.txt", [0xFF]);
+		WriteSettingsConvention(repo);
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("not valid UTF-8 text"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeInterpolatesMultipleExpressionsAndMissingValuesInCompositeStrings()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -704,6 +974,40 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeSupportsRepositoryRootRelativeConventionPathsWithinRemoteCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/parent/convention.yml", """
+			conventions:
+			- path: /conventions/root-relative-child
+			""");
+		remoteRepo.WriteFile("conventions/root-relative-child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'remote-root-relative.txt') -Value 'created'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/parent@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["apply"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("remote-root-relative.txt"), Is.True);
+			Assert.That(result.StandardOutput, Does.Contain("Convention root-relative-child"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeUsesRepositoryNameWhenRemoteConventionIsAtRepositoryRoot()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -793,6 +1097,15 @@ internal sealed class ConventionExecutionTests
 			request is { Owner: "local-test", Repository: "remote-conventions" }
 				? remoteRepo.GetRepositoryUri()
 				: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.");
+
+	private static void WriteSettingsConvention(TemporaryGitRepository repo)
+	{
+		repo.WriteFile(".github/conventions/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+	}
 
 	private static string NormalizeConventionOutput(string output)
 	{

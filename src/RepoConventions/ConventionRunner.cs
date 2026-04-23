@@ -16,7 +16,6 @@ internal sealed class ConventionRunner
 	public async Task<int> RunAsync(string topLevelConfigPath, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
 		var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
-		var topLevelConfigDirectory = Path.GetDirectoryName(topLevelConfigPath)!;
 
 		PullRequestPreparation? pullRequest = null;
 		if (applySettings.OpenPullRequest)
@@ -27,7 +26,7 @@ internal sealed class ConventionRunner
 		}
 
 		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigDirectory, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, expandCompositeSettings: false, sourceConventionIdentity: null, sourceConventionName: null, cancellationToken);
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionName: null, cancellationToken);
 		if (!planSucceeded)
 			return 1;
 
@@ -44,31 +43,41 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string containingDirectory, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool expandCompositeSettings, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		foreach (var reference in references)
 		{
-			if (!await AddConventionToPlanAsync(reference, containingDirectory, allowPullRequestSettings, activeConventions, plannedConventions, parentSettings, expandCompositeSettings, sourceConventionIdentity, sourceConventionName, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, configurationPath, allowPullRequestSettings, activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionName, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool expandCompositeSettings, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		var configuration = ConventionConfiguration.Load(configPath);
-		return await BuildConventionPlanAsync(configuration.Conventions, Path.GetDirectoryName(configPath)!, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, plannedConventions, parentSettings, expandCompositeSettings, sourceConventionIdentity, sourceConventionName, cancellationToken);
+		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionName, cancellationToken);
 	}
 
-	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string containingDirectory, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool expandCompositeSettings, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
 	{
 		JsonNode? effectiveSettings;
+		ResolvedConvention resolvedConvention;
 		try
 		{
-			effectiveSettings = expandCompositeSettings
-				? ConventionSettingsPropagator.Resolve(reference.Settings, parentSettings, sourceConventionName ?? "top-level", reference.Path)
-				: reference.Settings?.DeepClone();
+			effectiveSettings = ConventionSettingsPropagator.Resolve(
+				reference.Settings,
+				new ConventionSettingsEvaluationContext(
+					configurationPath,
+					m_settings.TargetRepositoryRoot,
+					parentSettings,
+					enableSettingsExpressions,
+					sourceConventionName ?? "top-level",
+					reference.Path));
+
+			var containingDirectory = Path.GetDirectoryName(configurationPath)!;
+			resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		}
 		catch (InvalidOperationException ex)
 		{
@@ -76,7 +85,6 @@ internal sealed class ConventionRunner
 			return false;
 		}
 
-		var resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		if (activeConventions.Contains(resolvedConvention.Identity))
 		{
 			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: skipped (cycle detected).");
@@ -104,7 +112,7 @@ internal sealed class ConventionRunner
 		{
 			if (hasConfiguration)
 			{
-				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, plannedConventions, effectiveSettings, expandCompositeSettings: true, resolvedConvention.Identity, resolvedConvention.DisplayName, cancellationToken))
+				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, plannedConventions, effectiveSettings, enableSettingsExpressions: true, resolvedConvention.Identity, resolvedConvention.DisplayName, cancellationToken))
 					return false;
 			}
 
@@ -227,16 +235,19 @@ internal sealed class ConventionRunner
 
 	private async Task<ResolvedConvention> ResolveConventionAsync(string conventionPath, string containingDirectory, CancellationToken cancellationToken)
 	{
+		var repositoryRoot = GetContainingRepositoryRoot(containingDirectory);
+
 		if (conventionPath.StartsWith('/'))
 		{
-			var directoryPath = Path.Combine(m_settings.TargetRepositoryRoot, conventionPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+			var relativeConventionPath = conventionPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+			var directoryPath = ResolveLocalConventionDirectoryPath(repositoryRoot, relativeConventionPath, repositoryRoot);
 			var name = new DirectoryInfo(directoryPath).Name;
 			return new ResolvedConvention(directoryPath, name, directoryPath, GetTargetRepositoryRelativePath(directoryPath), null);
 		}
 
 		if (conventionPath.StartsWith("./", StringComparison.Ordinal) || conventionPath.StartsWith("../", StringComparison.Ordinal))
 		{
-			var directoryPath = Path.GetFullPath(Path.Combine(containingDirectory, conventionPath));
+			var directoryPath = ResolveLocalConventionDirectoryPath(containingDirectory, conventionPath, repositoryRoot);
 			var name = new DirectoryInfo(directoryPath).Name;
 
 			if (TryGetRemoteCloneContext(directoryPath, out var remoteRepository, out var remoteCloneRoot))
@@ -972,6 +983,31 @@ internal sealed class ConventionRunner
 	}
 
 	private static string NormalizeGitHubPath(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
+
+	private string GetContainingRepositoryRoot(string containingDirectory) =>
+		TryGetRemoteCloneContext(containingDirectory, out _, out var cloneRoot)
+			? Path.GetFullPath(cloneRoot)
+			: Path.GetFullPath(m_settings.TargetRepositoryRoot);
+
+	private static string ResolveLocalConventionDirectoryPath(string baseDirectory, string conventionPath, string repositoryRoot)
+	{
+		var directoryPath = Path.GetFullPath(Path.Combine(baseDirectory, conventionPath));
+		if (!IsWithinRepositoryRoot(directoryPath, repositoryRoot))
+			throw new InvalidOperationException($"Resolved convention path '{directoryPath}' escapes the repository root '{repositoryRoot}'.");
+
+		return directoryPath;
+	}
+
+	private static bool IsWithinRepositoryRoot(string path, string repositoryRoot)
+	{
+		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+		var normalizedRoot = Path.TrimEndingDirectorySeparator(repositoryRoot);
+		if (string.Equals(path, normalizedRoot, comparison))
+			return true;
+
+		return path.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, comparison)
+			|| path.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, comparison);
+	}
 
 	private string GetTargetRepositoryRelativePath(string directoryPath) => NormalizeGitHubPath(Path.GetRelativePath(m_settings.TargetRepositoryRoot, directoryPath));
 

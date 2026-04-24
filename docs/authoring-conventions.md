@@ -68,9 +68,9 @@ settings:
 
 - Reads UTF-8 text from a file.
 - Relative paths resolve from the YAML file that contains the expression.
-- Paths beginning with `/` resolve from the target repository root.
+- Paths beginning with `/` resolve from the root of the repository that contains the YAML file.
 - Native absolute filesystem paths are not allowed.
-- Paths must stay within the target repository.
+- Paths must stay within the repository that contains the YAML file.
 
 ## Executable Conventions
 
@@ -96,6 +96,7 @@ $settings = $conventionInput.settings
 Authoring expectations:
 
 - Make the script idempotent.
+- Use `$args[0]` for the input JSON file path, in case additional arguments are added in the future.
 - Return exit code `0` when the repo is already compliant or after fixing it.
 - Use a non-zero exit code only when the convention cannot complete.
 - Avoid interactive prompts and machine-local dependencies.

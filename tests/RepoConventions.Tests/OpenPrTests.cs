@@ -423,6 +423,7 @@ internal sealed class OpenPrTests
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 		var createInvocation = fakeGh.LastInvocation("pr", "create");
+		var body = createInvocation.Last();
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -430,6 +431,8 @@ internal sealed class OpenPrTests
 			Assert.That(createInvocation, Does.Contain("applied-label"));
 			Assert.That(createInvocation, Does.Not.Contain("ignored-label"));
 			Assert.That(createInvocation, Does.Not.Contain("ignored-reviewer"));
+			Assert.That(body, Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
+			Assert.That(body, Does.Not.Contain("no-op"));
 		}
 	}
 

@@ -497,7 +497,7 @@ internal sealed class ConventionRunner
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
 	{
-		var contributingConventions = appliedConventions.Where(static x => x.CreatedCommitCount > 0).ToList();
+		var contributingConventions = GetContributingConventions(appliedConventions);
 		var draft = applySettings.Draft
 			?? repositoryPullRequestSettings?.Draft
 			?? contributingConventions.Any(static x => x.PullRequest?.Draft is true);
@@ -895,14 +895,18 @@ internal sealed class ConventionRunner
 
 	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName, string? configurationRepositoryRelativePath)
 	{
+		var contributingConventions = GetContributingConventions(appliedConventions);
 		var lines = new List<string>
 		{
 			$"{FormatConventionsLabel(targetRepositoryUrl, branchName, configurationRepositoryRelativePath)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
 		};
 
-		lines.AddRange(RenderAppliedConventionLines(appliedConventions, targetRepositoryUrl, branchName));
+		lines.AddRange(RenderAppliedConventionLines(contributingConventions, targetRepositoryUrl, branchName));
 		return string.Join(Environment.NewLine, lines);
 	}
+
+	private static List<AppliedConvention> GetContributingConventions(IReadOnlyList<AppliedConvention> appliedConventions) =>
+		appliedConventions.Where(static x => x.CreatedCommitCount > 0).ToList();
 
 	private static IEnumerable<string> RenderAppliedConventionLines(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
 	{

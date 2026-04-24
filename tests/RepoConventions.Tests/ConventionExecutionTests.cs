@@ -1008,6 +1008,82 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeReadsTextFromRelativePathWithinRemoteConventionRepository()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/read-settings/convention.yml", """
+			conventions:
+			- path: ./write-settings
+			  settings:
+			    text: ${{ readText("./body.txt") }}
+			""");
+		remoteRepo.WriteFile("conventions/read-settings/body.txt", "remote relative body");
+		remoteRepo.WriteFile("conventions/read-settings/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/read-settings@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["apply"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"text\":\"remote relative body\""));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeReadsTextFromRootRelativePathWithinRemoteConventionRepository()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/read-settings-root/convention.yml", """
+			conventions:
+			- path: ./write-settings
+			  settings:
+			    text: ${{ readText("/docs/body.txt") }}
+			""");
+		remoteRepo.WriteFile("docs/body.txt", "remote root body");
+		remoteRepo.WriteFile("conventions/read-settings-root/write-settings/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/read-settings-root@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["apply"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+		var settingsJson = await repo.ReadFileAsync("settings.json");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(settingsJson, Does.Contain("\"text\":\"remote root body\""));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeUsesRepositoryNameWhenRemoteConventionIsAtRepositoryRoot()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

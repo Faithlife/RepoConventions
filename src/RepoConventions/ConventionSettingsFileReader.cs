@@ -6,7 +6,7 @@ internal static class ConventionSettingsFileReader
 {
 	public static string ReadText(ConventionSettingsEvaluationContext context, string path)
 	{
-		var repositoryRoot = Path.GetFullPath(context.RepositoryRoot);
+		var repositoryRoot = GetContainingRepositoryRoot(context.ConfigurationDirectory, context.RepositoryRoot);
 		var resolvedPath = ResolvePath(context, path, repositoryRoot);
 		if (!File.Exists(resolvedPath))
 			throw new InvalidOperationException($"File '{resolvedPath}' was not found.");
@@ -37,6 +37,18 @@ internal static class ConventionSettingsFileReader
 			throw new InvalidOperationException($"Resolved path '{resolvedPath}' escapes the repository root '{repositoryRoot}'.");
 
 		return resolvedPath;
+	}
+
+	private static string GetContainingRepositoryRoot(string directoryPath, string fallbackRepositoryRoot)
+	{
+		for (var current = new DirectoryInfo(Path.GetFullPath(directoryPath)); current is not null; current = current.Parent)
+		{
+			var gitPath = Path.Combine(current.FullName, ".git");
+			if (Directory.Exists(gitPath) || File.Exists(gitPath))
+				return current.FullName;
+		}
+
+		return Path.GetFullPath(fallbackRepositoryRoot);
 	}
 
 	private static bool HasUtf8Bom(byte[] bytes) =>

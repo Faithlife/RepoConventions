@@ -16,34 +16,30 @@ dotnet tool install --global repo-conventions
 dnx repo-conventions --help
 ```
 
-Add `.github/conventions.yml` to the repository you want to manage.
+Create `.github/conventions.yml` in the repository you want to manage.
 
-```yaml
-pull-request:
-  labels:
-    - automation
-
-conventions:
-  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk@v1
-    settings:
-      version: 10
-  - path: ./conventions/local-policy
+```pwsh
+repo-conventions add Faithlife/CodingGuidelines/conventions/repo-conventions-workflow
 ```
 
-Run from the repository root.
+That convention installs a workflow that opens a PR nightly when convention changes are needed.
+
+Commit `.github/conventions.yml`, then run from the repository root.
 
 ```pwsh
 repo-conventions apply
 repo-conventions apply --open-pr
 ```
 
+`repo-conventions apply` creates and commits the workflow after the configuration file is committed.
+
 ## Configuration
 
 RepoConventions reads `.github/conventions.yml`.
 
 - `conventions` is required and lists convention references in application order.
-- Each convention entry must have `path` and may have `settings` and `pull-request`.
-- Top-level `pull-request` config controls metadata for PRs opened by `repo-conventions apply --open-pr`.
+- Each convention entry must have `path` and may have `settings`.
+- Use `pull-request` to control the settings of the PR opened by `repo-conventions apply --open-pr`.
 
 Convention path forms:
 
@@ -61,7 +57,6 @@ Convention path forms:
 
 - run from the repository root
 - start from a clean working tree
-- avoid detached HEAD
 - avoid unpushed local commits on the current branch
 
 You can also override PR behavior for a run with:
@@ -69,6 +64,16 @@ You can also override PR behavior for a run with:
 - `--auto-merge`
 - `--no-auto-merge`
 - `--merge-method merge|squash|rebase`
+
+Example:
+
+```yaml
+pull-request:
+  auto-merge: true
+
+conventions:
+  - path: Faithlife/CodingGuidelines/conventions/repo-conventions-workflow
+```
 
 ## More Documentation
 

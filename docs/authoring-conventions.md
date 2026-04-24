@@ -42,7 +42,7 @@ Supported behaviors:
 
 - Child conventions are applied in declaration order.
 - Relative child paths are resolved relative to the YAML file that contains them.
-- Root-relative paths beginning with `/` resolve from the target repository root.
+- Root-relative child paths beginning with `/` resolve from the root of the repository that contains the YAML file.
 
 ## Settings Expressions
 

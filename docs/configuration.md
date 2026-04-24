@@ -47,6 +47,12 @@ conventions:
 
 Use one of these path forms.
 
+`owner/repo/path@ref`
+
+- Resolves from a GitHub repository.
+- `path` is optional; omitting it targets the repository root.
+- `@ref` is optional; omitting it uses the remote repository's default branch.
+
 `./relative/path` or `../relative/path`
 
 - Resolves relative to the YAML file that contains the reference.
@@ -56,12 +62,6 @@ Use one of these path forms.
 
 - Resolves from the target repository root.
 - Useful when the configuration file is nested indirectly through composite conventions but the referenced files live at a stable repo-root location.
-
-`owner/repo/path@ref`
-
-- Resolves from a GitHub repository.
-- `path` is optional; omitting it targets the repository root.
-- `@ref` is optional; omitting it uses the remote repository's default branch.
 
 ## Settings
 

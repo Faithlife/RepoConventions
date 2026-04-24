@@ -1,6 +1,6 @@
-# Authoring Published Conventions
+# Authoring Conventions
 
-This document covers how to create and maintain convention directories that other repositories consume through RepoConventions.
+This document covers how to create and maintain convention directories that are consumed by RepoConventions.
 
 ## Convention Directory Layout
 

@@ -143,6 +143,174 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeCreatesDraftPullRequestWhenRepositorySettingRequiresIt()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  draft: true
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeCreatesDraftPullRequestWhenContributingConventionRequestsIt()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			  pull-request:
+			    draft: true
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeIgnoresDraftFromConventionThatCreatesNoCommits()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/no-op
+			  pull-request:
+			    draft: true
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'no changes'
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Not.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeDraftOptionOverridesConfiguration()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  draft: false
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--draft"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeNoDraftOptionOverridesConfiguration()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  draft: true
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--no-draft"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Not.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeFailsWhenDraftAndNoDraftAreBothSpecified()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--draft", "--no-draft"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("--draft and --no-draft cannot be used together."));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeSkipsReviewersAndAssigneesWhenAutoMergeIsEnabled()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -298,6 +466,44 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/local-test/remote-conventions/tree/main/conventions/add-file)"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeSupportsRepoAndCustomConfigPaths()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		var launchDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(launchDirectory);
+		repo.WriteFile(".config/repo-conventions.yml", """
+			conventions:
+			- path: /conventions/add-file
+			""");
+		repo.WriteFile("conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		try
+		{
+			var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--repo", repo.RootPath, "--config", ".config/repo-conventions.yml"], launchDirectory, externalCommandRunner: fakeGh.Runner);
+			var body = fakeGh.LastInvocation("pr", "create").Last();
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(body, Does.Contain("[Conventions](https://github.com/example/repo/blob/repo-conventions/.config/repo-conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):"));
+				Assert.That(body, Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/conventions/add-file)"));
+			}
+		}
+		finally
+		{
+			Directory.Delete(launchDirectory, recursive: true);
 		}
 	}
 

@@ -19,6 +19,7 @@ internal sealed class AddCommandTests
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
 			Assert.That(repo.FileExists(".github/conventions.yml"), Is.True);
+			Assert.That(await repo.ReadFileAsync(".github/conventions.yml"), Does.Not.Contain("\r\n"));
 			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
 		}
 	}
@@ -95,6 +96,7 @@ internal sealed class AddCommandTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(updatedContents, Does.Not.Contain("\r\n"));
 			Assert.That(updatedContents, Does.Contain("# leading comment"));
 			Assert.That(updatedContents, Does.Contain("# existing convention comment"));
 			Assert.That(updatedContents, Does.Contain("# trailing comment"));
@@ -143,6 +145,54 @@ internal sealed class AddCommandTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(repo.FileExists(".github/conventions.yml"), Is.True);
+		}
+	}
+
+	[Test]
+	public async Task AddModeSupportsRepoOptionOutsideRepositoryRoot()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var launchDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(launchDirectory);
+
+		try
+		{
+			var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--repo", repo.RootPath], launchDirectory);
+			var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+			var references = ConventionConfiguration.Load(configurationPath).Conventions;
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(result.StandardError, Is.Empty);
+				Assert.That(result.StandardOutput, Does.Contain(".github/conventions.yml"));
+				Assert.That(repo.FileExists(".github/conventions.yml"), Is.True);
+				Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+			}
+		}
+		finally
+		{
+			Directory.Delete(launchDirectory, recursive: true);
+		}
+	}
+
+	[Test]
+	public async Task AddModeSupportsCustomConfigPath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--config", ".config/repo-conventions.yml"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".config", "repo-conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain(".config/repo-conventions.yml"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("Added convention path './conventions/add-file' to '.github/conventions.yml'."));
+			Assert.That(repo.FileExists(".config/repo-conventions.yml"), Is.True);
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
 		}
 	}
 

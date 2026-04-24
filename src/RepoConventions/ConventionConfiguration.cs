@@ -47,7 +47,7 @@ internal static class ConventionConfiguration
 		var insertionPlan = DetermineConventionInsertionPlan(configurationPath, yaml);
 		var updatedYaml = ApplyConventionInsertion(yaml, insertionPlan, conventionPath);
 		ValidateConventionInsertion(configurationPath, conventionPath, configuration.Conventions.Count + 1, insertionPlan, updatedYaml);
-		File.WriteAllText(configurationPath, updatedYaml);
+		File.WriteAllText(configurationPath, NormalizeLineEndings(updatedYaml, GetNewLineSequence(yaml)));
 		return true;
 	}
 
@@ -327,7 +327,7 @@ internal static class ConventionConfiguration
 		return yaml[lineEndIndex] == '\n' ? "\n" : "";
 	}
 
-	private static string GetNewLineSequence(string yaml) => yaml.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : Environment.NewLine;
+	private static string GetNewLineSequence(string yaml) => yaml.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
 
 	private static int GetZeroBasedLineNumber(Mark mark) => checked((int) mark.Line) - 1;
 
@@ -340,8 +340,10 @@ internal static class ConventionConfiguration
 		var json = JsonSerializer.Serialize(configuration, s_jsonWriterOptions);
 		var yamlModel = s_yamlDeserializer.Deserialize(new StringReader(json));
 
-		File.WriteAllText(path, s_yamlWriter.Serialize(yamlModel));
+		File.WriteAllText(path, NormalizeLineEndings(s_yamlWriter.Serialize(yamlModel), "\n"));
 	}
+
+	private static string NormalizeLineEndings(string text, string newLine) => text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", newLine, StringComparison.Ordinal);
 
 	private static PullRequestSettings? ConvertPullRequestRecord(PullRequestRecord? pullRequest) =>
 		pullRequest is null
@@ -350,6 +352,7 @@ internal static class ConventionConfiguration
 				pullRequest.Labels,
 				pullRequest.Reviewers,
 				pullRequest.Assignees,
+				pullRequest.Draft,
 				pullRequest.AutoMerge,
 				pullRequest.MergeMethod);
 
@@ -384,6 +387,9 @@ internal static class ConventionConfiguration
 
 		[JsonPropertyName("assignees")]
 		public List<string>? Assignees { get; init; }
+
+		[JsonPropertyName("draft")]
+		public bool? Draft { get; init; }
 
 		[JsonPropertyName("auto-merge")]
 		public bool? AutoMerge { get; init; }

@@ -4,14 +4,22 @@ namespace RepoConventions;
 
 internal static class RepoConventionsCli
 {
-	public static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
-		=> await InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
+	public static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
 
-	internal static async Task<int> InvokeAsync(string[] args, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
 		var openPrOption = new Option<bool>("--open-pr")
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
+		};
+		var draftOption = new Option<bool>("--draft")
+		{
+			Description = "Create the generated pull request as a draft.",
+		};
+		var noDraftOption = new Option<bool>("--no-draft")
+		{
+			Description = "Create the generated pull request as ready for review even if configuration enables draft mode.",
 		};
 		var autoMergeOption = new Option<bool>("--auto-merge")
 		{
@@ -27,25 +35,47 @@ internal static class RepoConventionsCli
 		};
 		var conventionPathArgument = new Argument<string>("path")
 		{
-			Description = "Convention path to add to .github/conventions.yml.",
+			Description = "Convention path to add to the configuration file.",
 		};
 
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
 		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken));
 
 		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
+		var applyRepoOption = new Option<string>("--repo")
+		{
+			Description = "Target repository root. Defaults to the current directory.",
+		};
+		var applyConfigOption = new Option<string>("--config")
+		{
+			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
+		};
+		var applyTempOption = new Option<string>("--temp")
+		{
+			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
+		};
+		applyCommand.Options.Add(applyRepoOption);
+		applyCommand.Options.Add(applyConfigOption);
+		applyCommand.Options.Add(applyTempOption);
 		applyCommand.Options.Add(openPrOption);
+		applyCommand.Options.Add(draftOption);
+		applyCommand.Options.Add(noDraftOption);
 		applyCommand.Options.Add(autoMergeOption);
 		applyCommand.Options.Add(noAutoMergeOption);
 		applyCommand.Options.Add(mergeMethodOption);
 		applyCommand.SetAction(parseResult =>
 			ExecuteApplyAsync(
 				parseResult,
+				applyRepoOption,
+				applyConfigOption,
+				applyTempOption,
 				openPrOption,
+				draftOption,
+				noDraftOption,
 				autoMergeOption,
 				noAutoMergeOption,
 				mergeMethodOption,
-				workingDirectory,
+				currentDirectory,
 				standardOutput,
 				standardError,
 				remoteRepositoryUrlResolver,
@@ -54,12 +84,30 @@ internal static class RepoConventionsCli
 		rootCommand.Subcommands.Add(applyCommand);
 
 		var addCommand = new Command("add", "Add a convention path to the configuration file.");
+		var addRepoOption = new Option<string>("--repo")
+		{
+			Description = "Target repository root. Defaults to the current directory.",
+		};
+		var addConfigOption = new Option<string>("--config")
+		{
+			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
+		};
+		var addTempOption = new Option<string>("--temp")
+		{
+			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
+		};
+		addCommand.Options.Add(addRepoOption);
+		addCommand.Options.Add(addConfigOption);
+		addCommand.Options.Add(addTempOption);
 		addCommand.Arguments.Add(conventionPathArgument);
 		addCommand.SetAction(parseResult =>
 			ExecuteAddAsync(
 				parseResult,
+				addRepoOption,
+				addConfigOption,
+				addTempOption,
 				conventionPathArgument,
-				workingDirectory,
+				currentDirectory,
 				standardOutput,
 				standardError,
 				cancellationToken));
@@ -69,8 +117,25 @@ internal static class RepoConventionsCli
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
 	}
 
-	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<bool> openPrOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string workingDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
+		ResolvedCliPaths paths;
+		try
+		{
+			paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
+		}
+		catch (InvalidOperationException ex)
+		{
+			await standardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+
+		if (parseResult.GetValue(draftOption) && parseResult.GetValue(noDraftOption))
+		{
+			await standardError.WriteLineAsync("--draft and --no-draft cannot be used together.");
+			return 1;
+		}
+
 		if (parseResult.GetValue(autoMergeOption) && parseResult.GetValue(noAutoMergeOption))
 		{
 			await standardError.WriteLineAsync("--auto-merge and --no-auto-merge cannot be used together.");
@@ -84,57 +149,72 @@ internal static class RepoConventionsCli
 			return 1;
 		}
 
-		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
+		if (!await GitRepositoryValidator.IsRepositoryRootAsync(paths.RepositoryRoot, cancellationToken))
 		{
 			await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");
 			return 1;
 		}
 
-		if (!await GitRepositoryValidator.IsCleanAsync(workingDirectory, cancellationToken))
+		if (!await GitRepositoryValidator.IsCleanAsync(paths.RepositoryRoot, cancellationToken))
 		{
 			await standardError.WriteLineAsync("repo-conventions must be run from a clean repository.");
 			return 1;
 		}
 
-		var configPath = Path.Combine(workingDirectory, ".github", "conventions.yml");
-		if (!File.Exists(configPath))
+		if (!File.Exists(paths.ConfigurationPath))
 		{
-			await standardError.WriteLineAsync("The conventions configuration file '.github/conventions.yml' was not found.");
+			await standardError.WriteLineAsync($"The conventions configuration file '{paths.ConfigurationDisplayPath}' was not found.");
 			return 1;
 		}
 
-		var gitClient = new GitClient(workingDirectory);
+		var gitClient = new GitClient(paths.RepositoryRoot);
 		var conventionRunner = new ConventionRunner(new ConventionRunnerSettings
 		{
-			TargetRepositoryRoot = workingDirectory,
+			TargetRepositoryRoot = paths.RepositoryRoot,
 			TargetGitClient = gitClient,
+			TempRoot = paths.TempRoot,
 			StandardOutput = standardOutput,
 			StandardError = standardError,
 			RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 			ExternalCommandRunner = externalCommandRunner,
 		});
+		bool? draft = parseResult.GetValue(draftOption)
+			? true
+			: parseResult.GetValue(noDraftOption)
+				? false
+				: null;
 		bool? autoMerge = parseResult.GetValue(autoMergeOption)
 			? true
 			: parseResult.GetValue(noAutoMergeOption)
 				? false
 				: null;
-		return await conventionRunner.RunAsync(configPath, new ApplyCommandSettings(parseResult.GetValue(openPrOption), autoMerge, mergeMethod), cancellationToken);
+		return await conventionRunner.RunAsync(paths.ConfigurationPath, new ApplyCommandSettings(parseResult.GetValue(openPrOption), draft, autoMerge, mergeMethod), cancellationToken);
 	}
 
-	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Argument<string> conventionPathArgument, string workingDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Argument<string> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
 	{
-		if (!await GitRepositoryValidator.IsRepositoryRootAsync(workingDirectory, cancellationToken))
+		ResolvedCliPaths paths;
+		try
+		{
+			paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
+		}
+		catch (InvalidOperationException ex)
+		{
+			await standardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+
+		if (!await GitRepositoryValidator.IsRepositoryRootAsync(paths.RepositoryRoot, cancellationToken))
 		{
 			await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");
 			return 1;
 		}
 
-		var configPath = Path.Combine(workingDirectory, ".github", "conventions.yml");
 		var conventionPath = parseResult.GetValue(conventionPathArgument) ?? throw new InvalidOperationException("Missing convention path.");
-		if (ConventionConfiguration.AddConventionPath(configPath, conventionPath))
-			await standardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '.github/conventions.yml'.");
+		if (ConventionConfiguration.AddConventionPath(paths.ConfigurationPath, conventionPath))
+			await standardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '{paths.ConfigurationDisplayPath}'.");
 		else
-			await standardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '.github/conventions.yml'.");
+			await standardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '{paths.ConfigurationDisplayPath}'.");
 
 		return 0;
 	}

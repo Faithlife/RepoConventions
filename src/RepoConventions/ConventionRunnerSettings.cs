@@ -6,6 +6,8 @@ internal sealed class ConventionRunnerSettings
 
 	public required GitClient TargetGitClient { get; init; }
 
+	public required string TempRoot { get; init; }
+
 	public required TextWriter StandardOutput { get; init; }
 
 	public required TextWriter StandardError { get; init; }

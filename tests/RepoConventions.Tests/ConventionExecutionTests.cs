@@ -21,6 +21,20 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeFailsWhenCustomConfigIsMissing()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--config", ".config/repo-conventions.yml"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain(".config/repo-conventions.yml"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesExecutableConventionAndCreatesCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -213,6 +227,125 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("root-relative.txt"), Is.True);
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention root-relative."));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeSupportsRepoOptionOutsideRepositoryRoot()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var launchDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(launchDirectory);
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		try
+		{
+			var result = await CliInvocation.InvokeAsync(["apply", "--repo", repo.RootPath], launchDirectory);
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(repo.FileExists("created.txt"), Is.True);
+				Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+			}
+		}
+		finally
+		{
+			Directory.Delete(launchDirectory, recursive: true);
+		}
+	}
+
+	[Test]
+	public async Task CommitModeSupportsCustomConfigPath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".config/repo-conventions.yml", """
+			conventions:
+			- path: /conventions/add-file
+			""");
+		repo.WriteFile("conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'custom-config.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--config", ".config/repo-conventions.yml"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("custom-config.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeUsesConfiguredTempRootForRemoteCloneAndScriptInputFile()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'temp-input-path.txt') -Value $configPath
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/add-file@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var tempRoot = Path.Combine(repo.RootPath, ".artifacts", "repo-conventions-temp");
+		var result = await CliInvocation.InvokeAsync(
+			["apply", "--temp", ".artifacts/repo-conventions-temp"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(repo.FileExists("temp-input-path.txt"), Is.True);
+			var normalizedInputPath = (await repo.ReadFileAsync("temp-input-path.txt")).Trim().Replace('\\', '/');
+			var normalizedTempRoot = tempRoot.Replace('\\', '/');
+			Assert.That(normalizedInputPath, Does.StartWith(normalizedTempRoot + "/"));
+			Assert.That(Directory.Exists(tempRoot), Is.True);
+			Assert.That(Directory.EnumerateDirectories(tempRoot).Any(), Is.True);
+		}
+	}
+
+	[Test]
+	public async Task CommitModeFailsWhenTempRootCannotBeCreated()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		repo.WriteFile(".artifacts/blocked-temp-root", "blocked");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--temp", ".artifacts/blocked-temp-root"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("blocked-temp-root"));
+			Assert.That(repo.FileExists("created.txt"), Is.False);
 		}
 	}
 

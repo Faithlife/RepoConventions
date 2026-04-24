@@ -82,17 +82,6 @@ Behavior:
 - The current working directory is the target repository root.
 - The first argument is the path to a JSON file that contains a `settings` property.
 
-Minimal pattern:
-
-```powershell
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-$conventionInput = Get-Content -Raw $args[0] | ConvertFrom-Json
-$settings = $conventionInput.settings
-```
-
 Authoring expectations:
 
 - Make the script idempotent.

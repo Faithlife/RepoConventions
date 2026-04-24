@@ -19,6 +19,7 @@ internal sealed class AddCommandTests
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
 			Assert.That(repo.FileExists(".github/conventions.yml"), Is.True);
+			Assert.That(await repo.ReadFileAsync(".github/conventions.yml"), Does.Not.Contain("\r\n"));
 			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
 		}
 	}
@@ -95,6 +96,7 @@ internal sealed class AddCommandTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(updatedContents, Does.Not.Contain("\r\n"));
 			Assert.That(updatedContents, Does.Contain("# leading comment"));
 			Assert.That(updatedContents, Does.Contain("# existing convention comment"));
 			Assert.That(updatedContents, Does.Contain("# trailing comment"));

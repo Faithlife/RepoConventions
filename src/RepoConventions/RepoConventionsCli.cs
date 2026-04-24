@@ -9,18 +9,6 @@ internal static class RepoConventionsCli
 
 	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
-		var repoOption = new Option<string>("--repo")
-		{
-			Description = "Target repository root. Defaults to the current directory.",
-		};
-		var configOption = new Option<string>("--config")
-		{
-			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
-		};
-		var tempOption = new Option<string>("--temp")
-		{
-			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
-		};
 		var openPrOption = new Option<bool>("--open-pr")
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
@@ -43,12 +31,24 @@ internal static class RepoConventionsCli
 		};
 
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
-		rootCommand.Options.Add(repoOption);
-		rootCommand.Options.Add(configOption);
-		rootCommand.Options.Add(tempOption);
 		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken));
 
 		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
+		var applyRepoOption = new Option<string>("--repo")
+		{
+			Description = "Target repository root. Defaults to the current directory.",
+		};
+		var applyConfigOption = new Option<string>("--config")
+		{
+			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
+		};
+		var applyTempOption = new Option<string>("--temp")
+		{
+			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
+		};
+		applyCommand.Options.Add(applyRepoOption);
+		applyCommand.Options.Add(applyConfigOption);
+		applyCommand.Options.Add(applyTempOption);
 		applyCommand.Options.Add(openPrOption);
 		applyCommand.Options.Add(autoMergeOption);
 		applyCommand.Options.Add(noAutoMergeOption);
@@ -56,9 +56,9 @@ internal static class RepoConventionsCli
 		applyCommand.SetAction(parseResult =>
 			ExecuteApplyAsync(
 				parseResult,
-				repoOption,
-				configOption,
-				tempOption,
+				applyRepoOption,
+				applyConfigOption,
+				applyTempOption,
 				openPrOption,
 				autoMergeOption,
 				noAutoMergeOption,
@@ -72,13 +72,28 @@ internal static class RepoConventionsCli
 		rootCommand.Subcommands.Add(applyCommand);
 
 		var addCommand = new Command("add", "Add a convention path to the configuration file.");
+		var addRepoOption = new Option<string>("--repo")
+		{
+			Description = "Target repository root. Defaults to the current directory.",
+		};
+		var addConfigOption = new Option<string>("--config")
+		{
+			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
+		};
+		var addTempOption = new Option<string>("--temp")
+		{
+			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
+		};
+		addCommand.Options.Add(addRepoOption);
+		addCommand.Options.Add(addConfigOption);
+		addCommand.Options.Add(addTempOption);
 		addCommand.Arguments.Add(conventionPathArgument);
 		addCommand.SetAction(parseResult =>
 			ExecuteAddAsync(
 				parseResult,
-				repoOption,
-				configOption,
-				tempOption,
+				addRepoOption,
+				addConfigOption,
+				addTempOption,
 				conventionPathArgument,
 				currentDirectory,
 				standardOutput,

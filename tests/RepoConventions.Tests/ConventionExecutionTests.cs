@@ -310,13 +310,14 @@ internal sealed class ConventionExecutionTests
 			["apply", "--temp", ".artifacts/repo-conventions-temp"],
 			repo.RootPath,
 			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
-		var normalizedInputPath = (await repo.ReadFileAsync("temp-input-path.txt")).Trim().Replace('\\', '/');
-		var normalizedTempRoot = tempRoot.Replace('\\', '/');
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(repo.FileExists("temp-input-path.txt"), Is.True);
+			var normalizedInputPath = (await repo.ReadFileAsync("temp-input-path.txt")).Trim().Replace('\\', '/');
+			var normalizedTempRoot = tempRoot.Replace('\\', '/');
 			Assert.That(normalizedInputPath, Does.StartWith(normalizedTempRoot + "/"));
 			Assert.That(Directory.Exists(tempRoot), Is.True);
 			Assert.That(Directory.EnumerateDirectories(tempRoot).Any(), Is.True);

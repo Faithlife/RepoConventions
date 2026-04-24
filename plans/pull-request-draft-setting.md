@@ -21,7 +21,6 @@ This document proposes adding draft PR creation as another pull request setting 
 
 - Converting an existing open conventions PR from ready to draft.
 - Converting an existing draft conventions PR to ready for review.
-- Adding a first-version CLI override such as `--draft` or `--ready`.
 - Reworking the existing auto-merge, reviewer, assignee, or label rules.
 
 ## Current Behavior
@@ -59,9 +58,10 @@ The effective draft decision should be computed once for the generated PR.
 
 Precedence, highest to lowest:
 
-1. Repository-level `pull-request.draft` when explicitly set.
-2. Contributing convention-level `pull-request.draft` values.
-3. Default behavior: `false`.
+1. CLI override: `--draft` or `--no-draft`.
+2. Repository-level `pull-request.draft` when explicitly set.
+3. Contributing convention-level `pull-request.draft` values.
+4. Default behavior: `false`.
 
 Reduction rule for contributing conventions when the repository-level setting is absent:
 
@@ -75,6 +75,12 @@ Rationale:
 - Unlike auto-merge, there is no separate executable-convention heuristic needed here.
 
 ## Create And Update Semantics
+
+CLI override path:
+
+- `--draft` forces the effective result to draft.
+- `--no-draft` forces the effective result to ready for review.
+- `--draft` and `--no-draft` are mutually exclusive.
 
 Creation path:
 
@@ -106,6 +112,9 @@ Rationale:
 - Add an `OpenPrTests` case that verifies repository-level `pull-request.draft: true` adds `--draft` to `gh pr create`.
 - Add an `OpenPrTests` case that verifies a contributing convention with `pull-request.draft: true` also adds `--draft`.
 - Add an `OpenPrTests` case that verifies non-contributing conventions do not affect draft behavior.
+- Add an `OpenPrTests` case that verifies `--draft` overrides configuration.
+- Add an `OpenPrTests` case that verifies `--no-draft` overrides configuration.
+- Add an `OpenPrTests` case that verifies `--draft` and `--no-draft` are rejected together.
 - Add an `OpenPrTests` case that verifies an existing open PR update path does not attempt any draft-state mutation.
 - Update docs tests or snapshots if the repository later adds them for supported configuration properties.
 
@@ -117,5 +126,4 @@ Rationale:
 
 ## Open Questions
 
-- Should a future version add `--draft` and `--ready` CLI overrides, or is configuration-only support sufficient?
 - If we later support changing existing PR draft state, should repository-level `draft: false` force ready-for-review, or should existing human-chosen state win after creation?

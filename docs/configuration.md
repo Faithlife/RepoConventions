@@ -119,6 +119,7 @@ Notes:
 - Convention-level PR settings are only relevant when that convention actually contributes commits.
 - RepoConventions always applies its own `repo-conventions` label to generated PRs, even though it omits that label from the status summary.
 - When `draft` is enabled, new pull requests are created as drafts. Existing PRs keep their current draft or ready state.
+- `repo-conventions apply --open-pr --draft` and `repo-conventions apply --open-pr --no-draft` override configured draft behavior for a single run.
 - When auto-merge is enabled, reviewers and assignees are not requested on PR creation.
 - CLI flags can override configured auto-merge behavior for a single run.
 
@@ -153,6 +154,8 @@ Apply conventions and open a PR:
 
 ```pwsh
 repo-conventions apply --open-pr
+repo-conventions apply --open-pr --draft
+repo-conventions apply --open-pr --no-draft
 repo-conventions apply --open-pr --auto-merge --merge-method squash
 repo-conventions apply --open-pr --repo ../target-repo --config .config/repo-conventions.yml
 ```

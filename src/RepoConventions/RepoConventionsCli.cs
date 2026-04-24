@@ -13,6 +13,14 @@ internal static class RepoConventionsCli
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
 		};
+		var draftOption = new Option<bool>("--draft")
+		{
+			Description = "Create the generated pull request as a draft.",
+		};
+		var noDraftOption = new Option<bool>("--no-draft")
+		{
+			Description = "Create the generated pull request as ready for review even if configuration enables draft mode.",
+		};
 		var autoMergeOption = new Option<bool>("--auto-merge")
 		{
 			Description = "Enable auto-merge for the generated pull request.",
@@ -50,6 +58,8 @@ internal static class RepoConventionsCli
 		applyCommand.Options.Add(applyConfigOption);
 		applyCommand.Options.Add(applyTempOption);
 		applyCommand.Options.Add(openPrOption);
+		applyCommand.Options.Add(draftOption);
+		applyCommand.Options.Add(noDraftOption);
 		applyCommand.Options.Add(autoMergeOption);
 		applyCommand.Options.Add(noAutoMergeOption);
 		applyCommand.Options.Add(mergeMethodOption);
@@ -60,6 +70,8 @@ internal static class RepoConventionsCli
 				applyConfigOption,
 				applyTempOption,
 				openPrOption,
+				draftOption,
+				noDraftOption,
 				autoMergeOption,
 				noAutoMergeOption,
 				mergeMethodOption,
@@ -105,7 +117,7 @@ internal static class RepoConventionsCli
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
 	}
 
-	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
 		ResolvedCliPaths paths;
 		try
@@ -115,6 +127,12 @@ internal static class RepoConventionsCli
 		catch (InvalidOperationException ex)
 		{
 			await standardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+
+		if (parseResult.GetValue(draftOption) && parseResult.GetValue(noDraftOption))
+		{
+			await standardError.WriteLineAsync("--draft and --no-draft cannot be used together.");
 			return 1;
 		}
 
@@ -160,12 +178,17 @@ internal static class RepoConventionsCli
 			RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 			ExternalCommandRunner = externalCommandRunner,
 		});
+		bool? draft = parseResult.GetValue(draftOption)
+			? true
+			: parseResult.GetValue(noDraftOption)
+				? false
+				: null;
 		bool? autoMerge = parseResult.GetValue(autoMergeOption)
 			? true
 			: parseResult.GetValue(noAutoMergeOption)
 				? false
 				: null;
-		return await conventionRunner.RunAsync(paths.ConfigurationPath, new ApplyCommandSettings(parseResult.GetValue(openPrOption), autoMerge, mergeMethod), cancellationToken);
+		return await conventionRunner.RunAsync(paths.ConfigurationPath, new ApplyCommandSettings(parseResult.GetValue(openPrOption), draft, autoMerge, mergeMethod), cancellationToken);
 	}
 
 	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Argument<string> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)

@@ -498,7 +498,9 @@ internal sealed class ConventionRunner
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
 	{
 		var contributingConventions = appliedConventions.Where(static x => x.CreatedCommitCount > 0).ToList();
-		var draft = repositoryPullRequestSettings?.Draft ?? contributingConventions.Any(static x => x.PullRequest?.Draft is true);
+		var draft = applySettings.Draft
+			?? repositoryPullRequestSettings?.Draft
+			?? contributingConventions.Any(static x => x.PullRequest?.Draft is true);
 
 		bool autoMergeEnabled;
 		if (applySettings.AutoMerge is { } cliAutoMerge)

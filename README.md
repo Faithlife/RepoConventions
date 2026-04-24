@@ -59,6 +59,10 @@ Regarding convention paths:
 
 `repo-conventions apply --open-pr` applies conventions, creates commits, and opens or updates a PR for any created commits.
 
+`repo-conventions apply --open-pr --draft` forces the generated PR to be created as a draft.
+
+`repo-conventions apply --open-pr --no-draft` forces the generated PR to be created as ready for review even if configuration enables draft mode.
+
 When applying conventions, run from the repository root, and start with a clean working tree. With `--open-pr`, there should also be no unpushed local commits.
 
 ## More Documentation

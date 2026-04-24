@@ -235,6 +235,82 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeDraftOptionOverridesConfiguration()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  draft: false
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--draft"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeNoDraftOptionOverridesConfiguration()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  draft: true
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--no-draft"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Not.Contain("--draft"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeFailsWhenDraftAndNoDraftAreBothSpecified()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--draft", "--no-draft"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("--draft and --no-draft cannot be used together."));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeSkipsReviewersAndAssigneesWhenAutoMergeIsEnabled()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

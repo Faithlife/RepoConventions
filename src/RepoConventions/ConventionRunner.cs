@@ -895,18 +895,35 @@ internal sealed class ConventionRunner
 
 	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName, string? configurationRepositoryRelativePath)
 	{
-		var contributingConventions = GetContributingConventions(appliedConventions);
+		var visibleConventions = GetPullRequestBodyConventions(appliedConventions);
 		var lines = new List<string>
 		{
 			$"{FormatConventionsLabel(targetRepositoryUrl, branchName, configurationRepositoryRelativePath)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
 		};
 
-		lines.AddRange(RenderAppliedConventionLines(contributingConventions, targetRepositoryUrl, branchName));
+		lines.AddRange(RenderAppliedConventionLines(visibleConventions, targetRepositoryUrl, branchName));
 		return string.Join(Environment.NewLine, lines);
 	}
 
 	private static List<AppliedConvention> GetContributingConventions(IReadOnlyList<AppliedConvention> appliedConventions) =>
 		appliedConventions.Where(static x => x.CreatedCommitCount > 0).ToList();
+
+	private static List<AppliedConvention> GetPullRequestBodyConventions(IReadOnlyList<AppliedConvention> appliedConventions)
+	{
+		var visibleConventionIds = new HashSet<string>(StringComparer.Ordinal);
+		var conventionsByIdentity = appliedConventions.ToDictionary(static x => x.Identity, StringComparer.Ordinal);
+
+		foreach (var convention in GetContributingConventions(appliedConventions))
+		{
+			for (var currentConvention = convention;
+				visibleConventionIds.Add(currentConvention.Identity) && currentConvention.SourceConventionIdentity is { } parentIdentity && conventionsByIdentity.TryGetValue(parentIdentity, out currentConvention);
+			)
+			{
+			}
+		}
+
+		return appliedConventions.Where(x => visibleConventionIds.Contains(x.Identity)).ToList();
+	}
 
 	private static IEnumerable<string> RenderAppliedConventionLines(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
 	{

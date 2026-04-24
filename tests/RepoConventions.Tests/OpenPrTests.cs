@@ -511,7 +511,7 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
-	public async Task OpenPrModeUsesNestedBulletsForNestedConventionsInPullRequestBody()
+	public async Task OpenPrModePreservesAncestorsOfContributingConventionsInPullRequestBody()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
@@ -530,7 +530,7 @@ internal sealed class OpenPrTests
 			""");
 		repo.WriteFile(".github/conventions/parent/convention.ps1", """
 			param([string] $configPath)
-			Set-Content -Path (Join-Path $PWD 'parent.txt') -Value 'parent'
+			Write-Output 'no changes'
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.AddRemoteAsync("origin", origin.RootPath);
@@ -544,6 +544,7 @@ internal sealed class OpenPrTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(body, Does.Contain("- [parent](https://github.com/example/repo/tree/repo-conventions/.github/conventions/parent)"));
 			Assert.That(body, Does.Contain("\n  - [child](https://github.com/example/repo/tree/repo-conventions/.github/conventions/child)"));
+			Assert.That(body, Does.Not.Contain("parent.txt"));
 		}
 	}
 

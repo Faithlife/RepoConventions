@@ -4,56 +4,73 @@ Applies shared repository conventions.
 
 [![Build](https://github.com/Faithlife/RepoConventions/workflows/Build/badge.svg)](https://github.com/Faithlife/RepoConventions/actions?query=workflow%3ABuild) [![NuGet](https://img.shields.io/nuget/v/repo-conventions.svg)](https://www.nuget.org/packages/repo-conventions)
 
-## Usage
+RepoConventions applies shared repository conventions from a `.github/conventions.yml` file.
 
-To apply shared conventions to a repository, add a conventions configuration file at `.github/conventions.yml`. The YAML in that file should have a `conventions` property with one or more convention objects. Each convention object has a `path` and optional `settings`. For example:
+## Quick Start
 
-```yaml
-conventions:
-  - path: my-org/my-repo/my-convention@v1
-    settings:
-      my-flag: true
-  - path: my-org/my-repo/another-convention
-```
-
-Use the `repo-conventions` CLI (e.g. via GitHub workflow) to apply the conventions to the repository and create a pull request if any changes are needed.
+Install the tool globally, or run it ad hoc with `dnx`.
 
 ```pwsh
-dnx repo-conventions apply --open-pr
+dotnet tool install --global repo-conventions
+# or
+dnx repo-conventions --help
 ```
 
-### Convention paths
+Add `.github/conventions.yml` to the repository you want to manage.
 
-A remote convention path mirrors the `owner/repo/path@ref` style used by GitHub Actions, pointing to a convention directory in the specified branch/tag/commit of the specified GitHub repository. If the path is omitted, the root of the repository is used. If `@ref` is omitted, the head of the default branch is used.
+```yaml
+pull-request:
+  labels:
+    - automation
 
-A local convention path starts with `./` or `../`. It is relative to the directory containing the configuration file with the path, pointing to a convention directory in the same commit of the same GitHub repository.
+conventions:
+  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk@v1
+    settings:
+      version: 10
+  - path: ./conventions/local-policy
+```
 
-### Convention definitions
+Run from the repository root.
 
-A convention directory contains a convention definition, which may include a convention configuration file, a convention script file, or both, as well as any optional supporting files, such as a `README.md`, or files used by the convention script.
+```pwsh
+repo-conventions apply
+repo-conventions apply --open-pr
+```
 
-#### Composite conventions
+## Configuration
 
-A convention with a configuration file is a composite convention. The configuration file is named `convention.yml`. The YAML in that file should have a `conventions` property with one or more convention objects. Each convention object has a `path` and optional `settings`. When such a convention is applied, all of the conventions in the convention configuration file are applied. Child convention settings in a composite convention can reference the parent convention's settings using syntax such as `${{ settings.sdk.version }}`.
+RepoConventions reads `.github/conventions.yml`.
 
-#### Executable conventions
+- `conventions` is required and lists convention references in application order.
+- Each convention entry must have `path` and may have `settings` and `pull-request`.
+- Top-level `pull-request` config controls metadata for PRs opened by `repo-conventions apply --open-pr`.
 
-A convention with a script file is an executable convention. The script file is named `convention.ps1`. When the convention is applied, the script is run from the root directory of the target Git repository. The first and only argument passed to the script is the path to a JSON file. The JSON file contains an object with a `settings` property, which is set to the settings specified with the convention path, if any.
+Convention path forms:
 
-The convention script should check the repository to see if it adheres to the convention. If it does, it should return with a zero exit code. If it does not, it should make changes to the repository that bring the repository into compliance. The script can create commits, but if it leaves tracked or untracked file changes in the working set, they will automatically be committed. If the script cannot bring the repository into compliance, it returns a non-zero exit code, in which case any changes made by the script to the repository will be reverted.
+- Local relative paths start with `./` or `../` and are resolved relative to the configuration file.
+- Local root-relative paths start with `/` and are resolved from the repository root.
+- Remote paths use `owner/repo/path@ref`. If `path` is omitted, the repository root is used. If `@ref` is omitted, the remote default branch is used.
 
-### Repo Conventions CLI
+## CLI
 
-The `repo-conventions` CLI can be installed as a .NET tool or run with `dnx`.
+`repo-conventions add <path>` adds a convention reference to `.github/conventions.yml`, creating the file if needed.
 
-#### apply
+`repo-conventions apply` applies configured conventions and creates commits as needed.
 
-Use the `apply` command to apply the configured conventions, creating commits as needed.
+`repo-conventions apply --open-pr` opens or updates a PR for any generated commits. When using PR automation:
 
-Use the `--open-pr` option to open a PR if applying the conventions resulted in any commits.
+- run from the repository root
+- start from a clean working tree
+- avoid detached HEAD
+- avoid unpushed local commits on the current branch
 
-#### add
+You can also override PR behavior for a run with:
 
-Use the `add` command to add a convention path to `.github/conventions.yml`.
+- `--auto-merge`
+- `--no-auto-merge`
+- `--merge-method merge|squash|rebase`
 
-If the configuration file does not exist, it is created. If the path is already present, the file is left unchanged.
+## More Documentation
+
+- [Detailed configuration](docs/configuration.md)
+- [Authoring published conventions](docs/authoring-conventions.md)

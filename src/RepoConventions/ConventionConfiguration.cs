@@ -350,6 +350,7 @@ internal static class ConventionConfiguration
 				pullRequest.Labels,
 				pullRequest.Reviewers,
 				pullRequest.Assignees,
+				pullRequest.Draft,
 				pullRequest.AutoMerge,
 				pullRequest.MergeMethod);
 
@@ -384,6 +385,9 @@ internal static class ConventionConfiguration
 
 		[JsonPropertyName("assignees")]
 		public List<string>? Assignees { get; init; }
+
+		[JsonPropertyName("draft")]
+		public bool? Draft { get; init; }
 
 		[JsonPropertyName("auto-merge")]
 		public bool? AutoMerge { get; init; }

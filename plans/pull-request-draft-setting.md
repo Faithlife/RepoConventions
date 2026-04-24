@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft.
+Implemented.
 
 ## Purpose
 
@@ -98,7 +98,7 @@ Rationale:
 2. Extend `PullRequestBehavior` with a `bool Draft` field and compute it inside `BuildPullRequestBehavior` using the precedence rules above.
 3. Update `BuildCreatePullRequestArguments` to append `--draft` when the effective behavior requires it.
 4. Keep `CompleteExistingPullRequestAsync` unchanged with respect to draft status.
-5. Decide whether PR announcements should mention `draft` only on creation, or omit it entirely in the first version to avoid implying that updates changed PR state.
+5. Omit `draft` from PR announcement details in the first version to avoid implying that updates changed PR state.
 6. Update docs so `draft` appears anywhere the supported `pull-request` properties are enumerated.
 
 ## Test Plan

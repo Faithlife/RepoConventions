@@ -4,7 +4,7 @@ Applies shared repository conventions.
 
 [![Build](https://github.com/Faithlife/RepoConventions/workflows/Build/badge.svg)](https://github.com/Faithlife/RepoConventions/actions?query=workflow%3ABuild) [![NuGet](https://img.shields.io/nuget/v/repo-conventions.svg)](https://www.nuget.org/packages/repo-conventions)
 
-RepoConventions applies shared repository conventions from a `.github/conventions.yml` file.
+RepoConventions applies shared repository conventions from `.github/conventions.yml` by default.
 
 ## Quick Start
 
@@ -35,11 +35,12 @@ Commit `.github/conventions.yml`, then run `repo-conventions apply` from the rep
 
 ## Configuration
 
-RepoConventions reads `.github/conventions.yml`.
+RepoConventions reads `.github/conventions.yml` by default, or another file when you pass `--config`.
 
 - `conventions` is required and lists convention references in the order they are applied.
 - Each convention entry must have `path` and may have `settings`.
 - Use `pull-request` to control the settings of any PR opened by `repo-conventions apply --open-pr`.
+- Pull request settings support `labels`, `reviewers`, `assignees`, `draft`, `auto-merge`, and `merge-method`.
 
 Regarding convention paths:
 
@@ -48,9 +49,13 @@ Regarding convention paths:
 
 ## CLI
 
-`repo-conventions add <path>` adds a convention reference to `.github/conventions.yml`, creating the file if needed.
+`repo-conventions add <path>` adds a convention reference to the configured conventions file, creating it if needed.
+
+`repo-conventions add <path> --repo ../target-repo --config .config/repo-conventions.yml` targets a different repository or config file.
 
 `repo-conventions apply` applies configured conventions and creates commits as needed.
+
+`repo-conventions apply --repo ../target-repo --config .config/repo-conventions.yml --temp .artifacts/repo-conventions-temp` overrides the repository root, config file, and temp root.
 
 `repo-conventions apply --open-pr` applies conventions, creates commits, and opens or updates a PR for any created commits.
 

@@ -38,7 +38,7 @@ internal sealed class ConventionRunner
 			return 1;
 
 		if (pullRequest is not null)
-			return await CompletePullRequestAsync(pullRequest, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
+			return await CompletePullRequestAsync(pullRequest, topLevelConfigPath, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
 
 		return 0;
 	}
@@ -190,7 +190,17 @@ internal sealed class ConventionRunner
 	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, CancellationToken cancellationToken)
 	{
 		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
-		var inputPath = Path.GetTempFileName();
+		string inputPath;
+		try
+		{
+			inputPath = TemporaryPathFactory.CreateFile(m_settings.TempRoot, ".json");
+		}
+		catch (InvalidOperationException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return ConventionExecutionResult.Failed();
+		}
+
 		await File.WriteAllTextAsync(inputPath, JsonSerializer.Serialize(new JsonObject { ["settings"] = settings }), cancellationToken);
 
 		try
@@ -275,8 +285,7 @@ internal sealed class ConventionRunner
 		if (m_remoteCloneCache.TryGetValue(remotePath.Identity, out var existingPath))
 			return existingPath;
 
-		var clonePath = TemporaryDirectoryPath.Create();
-		Directory.CreateDirectory(clonePath);
+		var clonePath = TemporaryPathFactory.CreateDirectory(m_settings.TempRoot);
 		var repositoryUrl = GetRemoteRepositoryUrl(remotePath);
 
 		var cloneResult = await GitClient.RunGitAsync(m_settings.TargetRepositoryRoot, ["clone", repositoryUrl, clonePath], cancellationToken);
@@ -394,7 +403,7 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, PullRequestSettings? repositoryPullRequestSettings, ApplyCommandSettings applySettings, IReadOnlyList<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	private async Task<int> CompletePullRequestAsync(PullRequestPreparation pullRequest, string topLevelConfigPath, PullRequestSettings? repositoryPullRequestSettings, ApplyCommandSettings applySettings, IReadOnlyList<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
 		var newCommits = await m_settings.TargetGitClient.RunAsync(["rev-list", "--count", $"{pullRequest.StartingBranch}..HEAD"], cancellationToken);
 		if (newCommits.ExitCode != 0)
@@ -403,7 +412,7 @@ internal sealed class ConventionRunner
 		var pullRequestCommitCount = int.Parse(newCommits.StandardOutput.Trim(), CultureInfo.InvariantCulture);
 		var repositoryInfo = await GetTargetRepositoryInfoAsync(cancellationToken);
 		var targetRepositoryUrl = repositoryInfo.Url;
-		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName);
+		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName, GetTargetRepositoryRelativePathOrNull(topLevelConfigPath));
 		var behavior = BuildPullRequestBehavior(repositoryPullRequestSettings, appliedConventions, applySettings);
 		if (pullRequest.HasOpenPullRequest)
 			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, body, behavior, repositoryInfo, cancellationToken);
@@ -489,6 +498,7 @@ internal sealed class ConventionRunner
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
 	{
 		var contributingConventions = appliedConventions.Where(static x => x.CreatedCommitCount > 0).ToList();
+		var draft = repositoryPullRequestSettings?.Draft ?? contributingConventions.Any(static x => x.PullRequest?.Draft is true);
 
 		bool autoMergeEnabled;
 		if (applySettings.AutoMerge is { } cliAutoMerge)
@@ -555,7 +565,7 @@ internal sealed class ConventionRunner
 			AddUniqueRange(assignees, contributingConventions.SelectMany(static x => x.PullRequest?.Assignees ?? []), StringComparer.OrdinalIgnoreCase);
 		}
 
-		return new PullRequestBehavior(labels, reviewers, assignees, autoMergeEnabled, desiredMergeMethod, mergeMethodConflictFallback, applySettings.AutoMerge is true);
+		return new PullRequestBehavior(labels, reviewers, assignees, draft, autoMergeEnabled, desiredMergeMethod, mergeMethodConflictFallback, applySettings.AutoMerge is true);
 	}
 
 	private async Task WritePullRequestAnnouncementAsync(string message, string pullRequestUrl, PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome)
@@ -606,6 +616,9 @@ internal sealed class ConventionRunner
 			"--title",
 			"Apply repository conventions.",
 		};
+
+		if (behavior.Draft)
+			arguments.Add("--draft");
 
 		foreach (var label in behavior.Labels)
 		{
@@ -878,11 +891,11 @@ internal sealed class ConventionRunner
 		return !relativePath.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relativePath);
 	}
 
-	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
+	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName, string? configurationRepositoryRelativePath)
 	{
 		var lines = new List<string>
 		{
-			$"{FormatConventionsLabel(targetRepositoryUrl, branchName)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
+			$"{FormatConventionsLabel(targetRepositoryUrl, branchName, configurationRepositoryRelativePath)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
 		};
 
 		lines.AddRange(RenderAppliedConventionLines(appliedConventions, targetRepositoryUrl, branchName));
@@ -990,12 +1003,21 @@ internal sealed class ConventionRunner
 			await writer.WriteLineAsync(line);
 	}
 
-	private static string FormatConventionsLabel(string? targetRepositoryUrl, string branchName)
+	private static string FormatConventionsLabel(string? targetRepositoryUrl, string branchName, string? configurationRepositoryRelativePath)
 	{
-		if (targetRepositoryUrl is null)
+		if (targetRepositoryUrl is null || string.IsNullOrEmpty(configurationRepositoryRelativePath))
 			return "Conventions";
 
-		return $"[Conventions]({targetRepositoryUrl}/blob/{branchName}/.github/conventions.yml)";
+		return $"[Conventions]({targetRepositoryUrl}/blob/{branchName}/{configurationRepositoryRelativePath})";
+	}
+
+	private string? GetTargetRepositoryRelativePathOrNull(string path)
+	{
+		var relativePath = Path.GetRelativePath(m_settings.TargetRepositoryRoot, path);
+		if (relativePath.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relativePath))
+			return null;
+
+		return NormalizeGitHubPath(relativePath);
 	}
 
 	private static string FormatAppliedConvention(AppliedConvention convention, string? targetRepositoryUrl, string branchName)
@@ -1161,7 +1183,7 @@ internal sealed class ConventionRunner
 
 	private sealed record AppliedConvention(string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, int CreatedCommitCount);
 
-	private sealed record PullRequestBehavior(IReadOnlyList<string> Labels, IReadOnlyList<string> Reviewers, IReadOnlyList<string> Assignees, bool AutoMergeEnabled, string DesiredMergeMethod, bool MergeMethodConflictFallback, bool AutoMergeRequestedExplicitly);
+	private sealed record PullRequestBehavior(IReadOnlyList<string> Labels, IReadOnlyList<string> Reviewers, IReadOnlyList<string> Assignees, bool Draft, bool AutoMergeEnabled, string DesiredMergeMethod, bool MergeMethodConflictFallback, bool AutoMergeRequestedExplicitly);
 
 	private sealed record AutoMergeOutcome(int ExitCode, string? Summary)
 	{

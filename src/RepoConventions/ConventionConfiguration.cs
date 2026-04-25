@@ -399,7 +399,7 @@ internal static class ConventionConfiguration
 	}
 
 	private static readonly ISerializer s_yamlJsonSerializer = new SerializerBuilder().JsonCompatible().Build();
-	private static readonly ISerializer s_yamlWriter = new SerializerBuilder().Build();
+	private static readonly ISerializer s_yamlWriter = new SerializerBuilder().WithIndentedSequences().Build();
 	private static readonly IDeserializer s_yamlDeserializer = new DeserializerBuilder().WithAttemptingUnquotedStringTypeDeserialization().Build();
 	private static readonly JsonSerializerOptions s_jsonWriterOptions = new()
 	{

@@ -961,7 +961,7 @@ internal sealed class ConventionRunner
 	private static string FormatApplyingConventionName(PlannedConvention plannedConvention) =>
 		plannedConvention.SourceConventionNames.Count == 0
 			? plannedConvention.ResolvedConvention.DisplayName
-			: $"{plannedConvention.ResolvedConvention.DisplayName} ({string.Join(", ", plannedConvention.SourceConventionNames.Select(static x => $"from {x}"))})";
+			: $"{plannedConvention.ResolvedConvention.DisplayName} < {string.Join(" < ", plannedConvention.SourceConventionNames)}";
 
 	private static string[] BuildSourceConventionNames(string sourceConventionName, IReadOnlyList<string> sourceConventionNames) =>
 		[sourceConventionName, .. sourceConventionNames];

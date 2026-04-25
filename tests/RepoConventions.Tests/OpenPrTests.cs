@@ -78,7 +78,7 @@ internal sealed class OpenPrTests
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("main"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--head"));
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("repo-conventions"));
-			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("Apply repository conventions."));
+			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("Apply repository conventions"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[Conventions](https://github.com/example/repo/blob/repo-conventions/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[repo-conventions](https://github.com/Faithlife/RepoConventions)"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
@@ -787,7 +787,7 @@ internal sealed class OpenPrTests
 		await repo.PushAsync("origin", "main", setUpstream: true);
 		await repo.SwitchToNewBranchAsync("repo-conventions");
 		repo.WriteFile("created.txt", "created");
-		await repo.CommitAllAsync("Apply convention add-file.");
+		await repo.CommitAllAsync("Apply convention add-file");
 		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
 		await repo.SwitchToBranchAsync("main");
 		repo.WriteFile("base.txt", "latest-base");

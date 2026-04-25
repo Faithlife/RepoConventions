@@ -28,7 +28,7 @@ internal sealed class GitRepoTests
 		await repo.CommitAllAsync("Initial commit.");
 
 		var gitClient = new GitClient(repo.RootPath);
-		var committed = await gitClient.CommitAllAsync("Apply convention no-op.", CancellationToken.None);
+		var committed = await gitClient.CommitAllAsync("Apply convention no-op", CancellationToken.None);
 
 		using (Assert.EnterMultipleScope())
 		{

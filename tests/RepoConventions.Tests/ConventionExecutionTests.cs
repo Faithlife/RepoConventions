@@ -58,7 +58,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.StandardOutput, Does.StartWith("Applying 1 conventions..." + Environment.NewLine));
 			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention add-file."));
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
 		}
 	}
 
@@ -226,7 +226,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("root-relative.txt"), Is.True);
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention root-relative."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention root-relative"));
 		}
 	}
 
@@ -254,7 +254,7 @@ internal sealed class ConventionExecutionTests
 			{
 				Assert.That(result.ExitCode, Is.Zero);
 				Assert.That(repo.FileExists("created.txt"), Is.True);
-				Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+				Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
 			}
 		}
 		finally
@@ -283,7 +283,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("custom-config.txt"), Is.True);
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
 		}
 	}
 
@@ -441,7 +441,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(normalizedOutput, Does.Contain("No changes for convention parent."));
 			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention parent."));
 			Assert.That(normalizedOutput, Does.Not.Contain("Created 2 commits for convention parent."));
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child"));
 		}
 	}
 
@@ -476,7 +476,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(repo.FileExists("child.txt"), Is.True);
 			Assert.That(normalizedOutput, Does.Contain("\nConvention child < parent < grandparent\nCreated 1 commit for convention child.\n\nConvention parent < grandparent\n"));
 			Assert.That(normalizedOutput, Does.Contain("\nConvention grandparent\nNo changes for convention grandparent."));
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child"));
 		}
 	}
 
@@ -1021,7 +1021,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Not.Zero);
 			Assert.That(repo.FileExists("good.txt"), Is.True);
 			Assert.That(repo.FileExists("bad.txt"), Is.False);
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention good."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention good"));
 			Assert.That(await repo.GetWorkingTreeStatusAsync(), Is.Empty);
 		}
 	}
@@ -1055,7 +1055,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("remote.txt"), Is.True);
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
 		}
 	}
 
@@ -1094,7 +1094,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(await repo.ReadFileAsync("version.txt"), Does.Contain("v1"));
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention versioned."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention versioned"));
 		}
 	}
 
@@ -1277,7 +1277,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("remote-root.txt"), Is.True);
-			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention remote-conventions."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention remote-conventions"));
 		}
 	}
 
@@ -1375,7 +1375,7 @@ internal sealed class ConventionExecutionTests
 		return string.Join("\n", normalizedLines);
 	}
 
-	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent.", "Apply convention child."];
+	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent", "Apply convention child"];
 	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];
 
 	private sealed class TemporaryEnvironmentVariable : IDisposable

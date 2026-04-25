@@ -233,7 +233,7 @@ internal sealed class ConventionRunner
 
 			if (await m_settings.TargetGitClient.HasChangesAsync(cancellationToken))
 			{
-				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}.", cancellationToken);
+				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}", cancellationToken);
 			}
 
 			return ConventionExecutionResult.Success();
@@ -617,7 +617,7 @@ internal sealed class ConventionRunner
 			"--head",
 			pullRequest.BranchName,
 			"--title",
-			"Apply repository conventions.",
+			"Apply repository conventions",
 		};
 
 		if (behavior.Draft)

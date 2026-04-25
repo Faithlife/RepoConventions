@@ -446,6 +446,41 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeShowsFullAncestorChainForNestedCompositeConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/grandparent
+			""");
+		repo.WriteFile(".github/conventions/grandparent/convention.yml", """
+			conventions:
+			- path: ../parent
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("child.txt"), Is.True);
+			Assert.That(normalizedOutput, Does.Contain("\nConvention child (from parent, from grandparent)\nCreated 1 commit for convention child.\n\nConvention parent (from grandparent)\n"));
+			Assert.That(normalizedOutput, Does.Contain("\nConvention grandparent\nNo changes for convention grandparent."));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention child."));
+		}
+	}
+
+	[Test]
 	public async Task CommitModePropagatesExactTypedSettingsFromCompositeConvention()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

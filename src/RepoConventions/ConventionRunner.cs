@@ -26,7 +26,7 @@ internal sealed class ConventionRunner
 		}
 
 		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionName: null, cancellationToken);
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
 		if (!planSucceeded)
 			return 1;
 
@@ -43,24 +43,24 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
 		foreach (var reference in references)
 		{
-			if (!await AddConventionToPlanAsync(reference, configurationPath, allowPullRequestSettings, activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionName, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, configurationPath, allowPullRequestSettings, activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionNames, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
 		var configuration = ConventionConfiguration.Load(configPath);
-		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionName, cancellationToken);
+		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionNames, cancellationToken);
 	}
 
-	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, string? sourceConventionName, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
 		JsonNode? effectiveSettings;
 		ResolvedConvention resolvedConvention;
@@ -73,7 +73,7 @@ internal sealed class ConventionRunner
 					m_settings.TargetRepositoryRoot,
 					parentSettings,
 					enableSettingsExpressions,
-					sourceConventionName ?? "top-level",
+					sourceConventionNames.Count > 0 ? sourceConventionNames[0] : "top-level",
 					reference.Path));
 
 			var containingDirectory = Path.GetDirectoryName(configurationPath)!;
@@ -112,11 +112,12 @@ internal sealed class ConventionRunner
 		{
 			if (hasConfiguration)
 			{
-				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, plannedConventions, effectiveSettings, enableSettingsExpressions: true, resolvedConvention.Identity, resolvedConvention.DisplayName, cancellationToken))
+				var childSourceConventionNames = BuildSourceConventionNames(resolvedConvention.DisplayName, sourceConventionNames);
+				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, plannedConventions, effectiveSettings, enableSettingsExpressions: true, resolvedConvention.Identity, childSourceConventionNames, cancellationToken))
 					return false;
 			}
 
-			plannedConventions.Add(new PlannedConvention(resolvedConvention, effectiveSettings, allowPullRequestSettings ? reference.PullRequest : null, hasExecutableScript, sourceConventionIdentity, sourceConventionName));
+			plannedConventions.Add(new PlannedConvention(resolvedConvention, effectiveSettings, allowPullRequestSettings ? reference.PullRequest : null, hasExecutableScript, sourceConventionIdentity, sourceConventionNames));
 			return true;
 		}
 		finally
@@ -958,9 +959,12 @@ internal sealed class ConventionRunner
 	}
 
 	private static string FormatApplyingConventionName(PlannedConvention plannedConvention) =>
-		plannedConvention.SourceConventionName is null
+		plannedConvention.SourceConventionNames.Count == 0
 			? plannedConvention.ResolvedConvention.DisplayName
-			: $"{plannedConvention.ResolvedConvention.DisplayName} (from {plannedConvention.SourceConventionName})";
+			: $"{plannedConvention.ResolvedConvention.DisplayName} ({string.Join(", ", plannedConvention.SourceConventionNames.Select(static x => $"from {x}"))})";
+
+	private static string[] BuildSourceConventionNames(string sourceConventionName, IReadOnlyList<string> sourceConventionNames) =>
+		[sourceConventionName, .. sourceConventionNames];
 
 	private static bool IsRunningInGitHubActions() =>
 		string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
@@ -1202,7 +1206,7 @@ internal sealed class ConventionRunner
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, string ExistingPullRequestBody, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
-	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, string? SourceConventionName);
+	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, IReadOnlyList<string> SourceConventionNames);
 
 	private sealed record AppliedConvention(string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, int CreatedCommitCount);
 

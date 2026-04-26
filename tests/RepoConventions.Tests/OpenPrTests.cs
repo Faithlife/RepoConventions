@@ -759,7 +759,8 @@ internal sealed class OpenPrTests
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
-			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
 			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
 			Assert.That(fakeGh.LastInvocation("pr", "edit"), Does.Contain("--add-label"));
 			Assert.That(fakeGh.LastInvocation("pr", "edit"), Does.Contain("repo-conventions"));
@@ -815,19 +816,24 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
-	public async Task OpenPrModeUpdatesExistingPullRequestBodyWhenItChanges()
+	public async Task OpenPrModeAddsCommentForAdditionalConventionCommitsOnExistingPullRequest()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
-		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: "Old body");
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: BuildSingleConventionPullRequestBody("repo-conventions", "existing-convention", ".github/conventions/existing-convention"));
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
-			- path: ./conventions/add-file
+			- path: ./conventions/add-alpha
+			- path: ./conventions/add-beta
 			""");
-		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+		repo.WriteFile(".github/conventions/add-alpha/convention.ps1", """
 			param([string] $configPath)
-			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			Set-Content -Path (Join-Path $PWD 'alpha.txt') -Value 'alpha'
+			""");
+		repo.WriteFile(".github/conventions/add-beta/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'beta.txt') -Value 'beta'
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.AddRemoteAsync("origin", origin.RootPath);
@@ -839,14 +845,17 @@ internal sealed class OpenPrTests
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 		var editInvocations = fakeGh.Invocations.Where(static x => x.Length >= 2 && x[0] == "pr" && x[1] == "edit").ToList();
+		var commentInvocation = fakeGh.LastInvocation("pr", "comment");
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
-			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(2));
-			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--body") && x.Last().Contains("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)", StringComparison.Ordinal)), Is.True);
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("pr", "edit"), Is.EqualTo(1));
+			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--body")), Is.False);
 			Assert.That(editInvocations.Any(static x => x.Any(static y => y == "--add-label") && x.Any(static y => y == "repo-conventions")), Is.True);
+			Assert.That(commentInvocation.Last(), Does.Contain("[add-alpha](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-alpha)"));
+			Assert.That(commentInvocation.Last(), Does.Contain("[add-beta](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-beta)"));
 		}
 	}
 

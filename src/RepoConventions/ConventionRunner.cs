@@ -456,6 +456,7 @@ internal sealed class ConventionRunner
 		var currentHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		var commitsChanged = pullRequest.ExistingBranchHead != currentHead;
 		var bodyChanged = pullRequest.ExistingPullRequestBody != pullRequestBody;
+		var shouldCommentAdditionalConventionCommits = commitsChanged && !pullRequest.RestartedFromBase;
 
 		if (pullRequestCommitCount == 0)
 		{
@@ -476,7 +477,12 @@ internal sealed class ConventionRunner
 		if (commitsChanged)
 			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, cancellationToken);
 
-		if (bodyChanged)
+		if (shouldCommentAdditionalConventionCommits)
+		{
+			if (!await AddPullRequestCommentAsync(pullRequest.PullRequestUrl, pullRequestBody, cancellationToken))
+				return 1;
+		}
+		else if (bodyChanged)
 		{
 			if (!await UpdatePullRequestBodyAsync(pullRequest.PullRequestUrl, pullRequestBody, cancellationToken))
 				return 1;

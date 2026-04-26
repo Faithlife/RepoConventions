@@ -1,12 +1,16 @@
 root = true
 
+# DO NOT EDIT: root convention
 [*]
 charset = utf-8
 end_of_line = lf
+trim_trailing_whitespace = true
+# END DO NOT EDIT
+
+[*]
 indent_size = 2
 indent_style = space
 insert_final_newline = true
-trim_trailing_whitespace = true
 
 [*.json]
 resharper_comment_typo_highlighting = none

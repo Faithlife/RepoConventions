@@ -233,7 +233,7 @@ internal sealed class ConventionRunner
 
 			if (await m_settings.TargetGitClient.HasChangesAsync(cancellationToken))
 			{
-				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}.", cancellationToken);
+				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}", cancellationToken);
 			}
 
 			return ConventionExecutionResult.Success();
@@ -456,6 +456,7 @@ internal sealed class ConventionRunner
 		var currentHead = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		var commitsChanged = pullRequest.ExistingBranchHead != currentHead;
 		var bodyChanged = pullRequest.ExistingPullRequestBody != pullRequestBody;
+		var shouldCommentAdditionalConventionCommits = commitsChanged && !pullRequest.RestartedFromBase;
 
 		if (pullRequestCommitCount == 0)
 		{
@@ -476,7 +477,12 @@ internal sealed class ConventionRunner
 		if (commitsChanged)
 			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, cancellationToken);
 
-		if (bodyChanged)
+		if (shouldCommentAdditionalConventionCommits)
+		{
+			if (!await AddPullRequestCommentAsync(pullRequest.PullRequestUrl, pullRequestBody, cancellationToken))
+				return 1;
+		}
+		else if (bodyChanged)
 		{
 			if (!await UpdatePullRequestBodyAsync(pullRequest.PullRequestUrl, pullRequestBody, cancellationToken))
 				return 1;
@@ -617,7 +623,7 @@ internal sealed class ConventionRunner
 			"--head",
 			pullRequest.BranchName,
 			"--title",
-			"Apply repository conventions.",
+			"Apply repository conventions",
 		};
 
 		if (behavior.Draft)
@@ -961,7 +967,7 @@ internal sealed class ConventionRunner
 	private static string FormatApplyingConventionName(PlannedConvention plannedConvention) =>
 		plannedConvention.SourceConventionNames.Count == 0
 			? plannedConvention.ResolvedConvention.DisplayName
-			: $"{plannedConvention.ResolvedConvention.DisplayName} ({string.Join(", ", plannedConvention.SourceConventionNames.Select(static x => $"from {x}"))})";
+			: $"{plannedConvention.ResolvedConvention.DisplayName} < {string.Join(" < ", plannedConvention.SourceConventionNames)}";
 
 	private static string[] BuildSourceConventionNames(string sourceConventionName, IReadOnlyList<string> sourceConventionNames) =>
 		[sourceConventionName, .. sourceConventionNames];

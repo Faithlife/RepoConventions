@@ -114,5 +114,3 @@ Test against a temporary Git repository and verify:
 - the non-compliant case
 - a second successful run produces no changes
 - any supported non-default settings behave correctly
-
-If you use Pester, keep syntax compatible with Pester 3.x.

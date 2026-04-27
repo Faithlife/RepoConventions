@@ -1,23 +1,41 @@
 root = true
 
+# DO NOT EDIT: root convention
 [*]
 charset = utf-8
 end_of_line = lf
+trim_trailing_whitespace = true
+# END DO NOT EDIT
+
+# DO NOT EDIT: json convention
+[*.json]
 indent_size = 2
 indent_style = space
-insert_final_newline = true
-trim_trailing_whitespace = true
+# END DO NOT EDIT
 
-[*.json]
-resharper_comment_typo_highlighting = none
-resharper_identifier_typo_highlighting = none
-resharper_string_literal_typo_highlighting = none
+# DO NOT EDIT: md convention
+[*.md]
+indent_size = 2
+indent_style = space
+# END DO NOT EDIT
 
-[Directory.Packages.props]
-insert_final_newline = false
+# DO NOT EDIT: ps1 convention
+[*.ps1]
+indent_size = tab
+indent_style = tab
+# END DO NOT EDIT
 
-[dotnet-tools.json]
-insert_final_newline = false
+# DO NOT EDIT: yaml convention
+[*.{yml,yaml}]
+indent_size = 2
+indent_style = space
+# END DO NOT EDIT
+
+# DO NOT EDIT: csharp convention
+# generated from https://github.com/Faithlife/CodingGuidelines/blob/master/sections/csharp/editorconfig.md
+[*.{csproj,props,slnx,targets}]
+indent_size = 2
+indent_style = space
 
 [*.{cs,cshtml,razor}]
 indent_size = tab
@@ -379,3 +397,4 @@ resharper_unused_auto_property_accessor_global_highlighting = none
 resharper_unused_auto_property_accessor_local_highlighting = suggestion
 resharper_unused_member_global_highlighting = none
 resharper_unused_member_local_highlighting = suggestion
+# END DO NOT EDIT

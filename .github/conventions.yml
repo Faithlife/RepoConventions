@@ -10,3 +10,6 @@ conventions:
   - path: Faithlife/CodingGuidelines/conventions/editorconfig-yaml
   - path: Faithlife/CodingGuidelines/conventions/editorconfig-csharp
   - path: Faithlife/CodingGuidelines/conventions/license-mit
+  - path: Faithlife/CodingGuidelines/conventions/faithlife-build-script
+  - path: Faithlife/CodingGuidelines/conventions/faithlife-build-library-project
+  - path: Faithlife/CodingGuidelines/conventions/faithlife-build-library-workflow

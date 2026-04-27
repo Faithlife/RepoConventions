@@ -1,15 +1,3 @@
 conventions:
-  - path: Faithlife/CodingGuidelines/conventions/repo-conventions-workflow
-  - path: Faithlife/CodingGuidelines/conventions/gitattributes-lf
-  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk10
-  - path: Faithlife/CodingGuidelines/conventions/dotnet-slnx
-  - path: Faithlife/CodingGuidelines/conventions/editorconfig-root
-  - path: Faithlife/CodingGuidelines/conventions/editorconfig-json
-  - path: Faithlife/CodingGuidelines/conventions/editorconfig-md
-  - path: Faithlife/CodingGuidelines/conventions/editorconfig-ps1
-  - path: Faithlife/CodingGuidelines/conventions/editorconfig-yaml
-  - path: Faithlife/CodingGuidelines/conventions/editorconfig-csharp
-  - path: Faithlife/CodingGuidelines/conventions/license-mit
-  - path: Faithlife/CodingGuidelines/conventions/faithlife-build-script
-  - path: Faithlife/CodingGuidelines/conventions/faithlife-build-library-project
-  - path: Faithlife/CodingGuidelines/conventions/faithlife-build-library-workflow
+  - path: Faithlife/CodingGuidelines/conventions/faithlife-license-mit
+  - path: Faithlife/CodingGuidelines/conventions/faithlife-csharp-library

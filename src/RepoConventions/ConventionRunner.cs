@@ -15,41 +15,40 @@ internal sealed class ConventionRunner
 
 	public async Task<int> RunAsync(string topLevelConfigPath, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
-		ConventionFileConfiguration topLevelConfiguration;
 		try
 		{
-			topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+
+			PullRequestPreparation? pullRequest = null;
+			if (applySettings.OpenPullRequest)
+			{
+				pullRequest = await PreparePullRequestAsync(cancellationToken);
+				if (pullRequest is null)
+					return 1;
+			}
+
+			var plannedConventions = new List<PlannedConvention>();
+			var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
+			if (!planSucceeded)
+				return 1;
+
+			await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
+
+			var appliedConventions = new List<AppliedConvention>();
+			var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
+			if (!success)
+				return 1;
+
+			if (pullRequest is not null)
+				return await CompletePullRequestAsync(pullRequest, topLevelConfigPath, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
+
+			return 0;
 		}
-		catch (InvalidOperationException ex)
+		catch (ProgramException ex)
 		{
 			await m_settings.StandardError.WriteLineAsync(ex.Message);
 			return 1;
 		}
-
-		PullRequestPreparation? pullRequest = null;
-		if (applySettings.OpenPullRequest)
-		{
-			pullRequest = await PreparePullRequestAsync(cancellationToken);
-			if (pullRequest is null)
-				return 1;
-		}
-
-		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
-		if (!planSucceeded)
-			return 1;
-
-		await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
-
-		var appliedConventions = new List<AppliedConvention>();
-		var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
-		if (!success)
-			return 1;
-
-		if (pullRequest is not null)
-			return await CompletePullRequestAsync(pullRequest, topLevelConfigPath, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
-
-		return 0;
 	}
 
 	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
@@ -88,7 +87,7 @@ internal sealed class ConventionRunner
 			var containingDirectory = Path.GetDirectoryName(configurationPath)!;
 			resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		}
-		catch (InvalidOperationException ex)
+		catch (ProgramException ex)
 		{
 			await m_settings.StandardError.WriteLineAsync(ex.Message);
 			return false;
@@ -205,7 +204,7 @@ internal sealed class ConventionRunner
 		{
 			inputPath = TemporaryPathFactory.CreateFile(m_settings.TempRoot, ".json");
 		}
-		catch (InvalidOperationException ex)
+		catch (ProgramException ex)
 		{
 			await m_settings.StandardError.WriteLineAsync(ex.Message);
 			return ConventionExecutionResult.Failed();
@@ -227,7 +226,7 @@ internal sealed class ConventionRunner
 			startInfo.ArgumentList.Add(scriptPath);
 			startInfo.ArgumentList.Add(inputPath);
 
-			using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start pwsh.");
+			using var process = Process.Start(startInfo) ?? throw new ProgramException("Failed to start pwsh.");
 			var outputTask = PumpOutputAsync(process.StandardOutput, m_settings.StandardOutput);
 			var errorTask = PumpOutputAsync(process.StandardError, m_settings.StandardError);
 			await process.WaitForExitAsync(cancellationToken);
@@ -300,13 +299,13 @@ internal sealed class ConventionRunner
 
 		var cloneResult = await GitClient.RunGitAsync(m_settings.TargetRepositoryRoot, ["clone", repositoryUrl, clonePath], cancellationToken);
 		if (cloneResult.ExitCode != 0)
-			throw new InvalidOperationException($"Failed to clone remote convention repository '{repositoryUrl}': {cloneResult.StandardError}{cloneResult.StandardOutput}");
+			throw new ProgramException($"Failed to clone remote convention repository '{repositoryUrl}': {cloneResult.StandardError}{cloneResult.StandardOutput}");
 
 		if (!string.IsNullOrEmpty(remotePath.Ref))
 		{
 			var checkoutResult = await GitClient.RunGitAsync(clonePath, ["checkout", remotePath.Ref], cancellationToken);
 			if (checkoutResult.ExitCode != 0)
-				throw new InvalidOperationException($"Failed to checkout ref '{remotePath.Ref}' in '{repositoryUrl}': {checkoutResult.StandardError}{checkoutResult.StandardOutput}");
+				throw new ProgramException($"Failed to checkout ref '{remotePath.Ref}' in '{repositoryUrl}': {checkoutResult.StandardError}{checkoutResult.StandardOutput}");
 		}
 
 		m_remoteCloneCache.Add(remotePath.Identity, clonePath);
@@ -1096,7 +1095,7 @@ internal sealed class ConventionRunner
 	{
 		var directoryPath = Path.GetFullPath(Path.Combine(baseDirectory, conventionPath));
 		if (!IsWithinRepositoryRoot(directoryPath, repositoryRoot))
-			throw new InvalidOperationException($"Resolved convention path '{directoryPath}' escapes the repository root '{repositoryRoot}'.");
+			throw new ProgramException($"Resolved convention path '{directoryPath}' escapes the repository root '{repositoryRoot}'.");
 
 		return directoryPath;
 	}
@@ -1202,7 +1201,7 @@ internal sealed class ConventionRunner
 		foreach (var argument in arguments)
 			startInfo.ArgumentList.Add(argument);
 
-		using var process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start {fileName}.");
+		using var process = Process.Start(startInfo) ?? throw new ProgramException($"Failed to start {fileName}.");
 		var standardOutput = await process.StandardOutput.ReadToEndAsync(cancellationToken);
 		var standardError = await process.StandardError.ReadToEndAsync(cancellationToken);
 		await process.WaitForExitAsync(cancellationToken);
@@ -1282,7 +1281,7 @@ internal sealed class ConventionRunner
 
 			var segments = pathWithoutRef.Split('/', StringSplitOptions.RemoveEmptyEntries);
 			if (segments.Length < 2)
-				throw new InvalidOperationException($"Convention path '{conventionPath}' is not a valid remote convention path.");
+				throw new ProgramException($"Convention path '{conventionPath}' is not a valid remote convention path.");
 
 			var owner = segments[0];
 			var repository = segments[1];

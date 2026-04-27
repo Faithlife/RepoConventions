@@ -54,6 +54,36 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeDoesNotSwallowUnexpectedInvalidOperationException()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/add-file@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var standardOutput = new StringWriter();
+		var standardError = new StringWriter();
+
+		var exitCode = await RepoConventionsCli.InvokeAsync(
+			["apply"],
+			repo.RootPath,
+			standardOutput,
+			standardError,
+			_ => throw new InvalidOperationException("Unexpected resolver failure."),
+			externalCommandRunner: null,
+			CancellationToken.None);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(exitCode, Is.Not.Zero);
+			Assert.That(standardError.ToString(), Does.Contain("Unhandled exception"));
+			Assert.That(standardError.ToString(), Does.Contain("Unexpected resolver failure."));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesExecutableConventionAndCreatesCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

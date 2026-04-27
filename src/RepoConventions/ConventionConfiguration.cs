@@ -17,7 +17,7 @@ internal static class ConventionConfiguration
 		foreach (var convention in configuration.Conventions)
 		{
 			if (string.IsNullOrWhiteSpace(convention.Path))
-				throw new InvalidOperationException($"Convention entries in '{path}' must include a non-empty 'path'.");
+				throw new ProgramException($"Convention entries in '{path}' must include a non-empty 'path'.");
 
 			references.Add(new ConventionReference(convention.Path, convention.Settings, ConvertPullRequestRecord(convention.PullRequest)));
 		}
@@ -61,13 +61,13 @@ internal static class ConventionConfiguration
 			var configuration = JsonSerializer.Deserialize<ConfigurationFile>(json);
 
 			if (configuration?.Conventions is null)
-				throw new InvalidOperationException($"Configuration file '{path}' must contain a 'conventions' sequence.");
+				throw new ProgramException($"Configuration file '{path}' must contain a 'conventions' sequence.");
 
 			return configuration;
 		}
 		catch (YamlException ex)
 		{
-			throw new InvalidOperationException($"Configuration file '{path}' is not valid YAML: {ex.Message}", ex);
+			throw new ProgramException($"Configuration file '{path}' is not valid YAML: {ex.Message}", ex);
 		}
 	}
 
@@ -76,13 +76,13 @@ internal static class ConventionConfiguration
 		var parsingEvents = GetParsingEvents(path, yaml);
 		var rootMappingIndex = parsingEvents.FindIndex(static x => x is MappingStart);
 		if (rootMappingIndex < 0)
-			throw new InvalidOperationException($"Configuration file '{path}' must contain a root mapping.");
+			throw new ProgramException($"Configuration file '{path}' must contain a root mapping.");
 
 		var currentIndex = rootMappingIndex + 1;
 		while (currentIndex < parsingEvents.Count && parsingEvents[currentIndex] is not MappingEnd)
 		{
 			if (parsingEvents[currentIndex] is not Scalar keyEvent)
-				throw new InvalidOperationException($"Configuration file '{path}' must contain scalar mapping keys.");
+				throw new ProgramException($"Configuration file '{path}' must contain scalar mapping keys.");
 
 			var valueIndex = currentIndex + 1;
 			if (keyEvent.Value == "conventions")
@@ -91,13 +91,13 @@ internal static class ConventionConfiguration
 			currentIndex = SkipNode(parsingEvents, valueIndex);
 		}
 
-		throw new InvalidOperationException($"Configuration file '{path}' must contain a 'conventions' sequence.");
+		throw new ProgramException($"Configuration file '{path}' must contain a 'conventions' sequence.");
 	}
 
 	private static ConventionInsertionPlan DetermineConventionInsertionPlan(string path, string yaml, Scalar keyEvent, int valueIndex, List<ParsingEvent> parsingEvents)
 	{
 		if (valueIndex >= parsingEvents.Count || parsingEvents[valueIndex] is not SequenceStart)
-			throw new InvalidOperationException($"The 'conventions' entry in '{path}' must be a sequence to support 'repo-conventions add'.");
+			throw new ProgramException($"The 'conventions' entry in '{path}' must be a sequence to support 'repo-conventions add'.");
 
 		var currentIndex = valueIndex + 1;
 		var itemStartIndexes = new List<int>();
@@ -108,7 +108,7 @@ internal static class ConventionConfiguration
 		}
 
 		if (currentIndex >= parsingEvents.Count || parsingEvents[currentIndex] is not SequenceEnd sequenceEnd)
-			throw new InvalidOperationException($"Could not determine where to append to 'conventions' in '{path}'.");
+			throw new ProgramException($"Could not determine where to append to 'conventions' in '{path}'.");
 
 		var keyLine = GetOneBasedLineNumber(keyEvent.Start);
 		string? itemIndentation = null;
@@ -158,7 +158,7 @@ internal static class ConventionConfiguration
 			var keyLine = yaml.Substring(insertionPlan.Index, insertionPlan.Length);
 			var emptySequenceIndex = keyLine.IndexOf("[]", StringComparison.Ordinal);
 			if (emptySequenceIndex < 0)
-				throw new InvalidOperationException($"Failed to locate the empty 'conventions' sequence text at line {insertionPlan.LineNumber}.");
+				throw new ProgramException($"Failed to locate the empty 'conventions' sequence text at line {insertionPlan.LineNumber}.");
 
 			var before = keyLine[..emptySequenceIndex];
 			var after = keyLine[(emptySequenceIndex + 2)..];
@@ -187,14 +187,14 @@ internal static class ConventionConfiguration
 		{
 			reparsedConfiguration = LoadConfigurationText(path, updatedYaml);
 		}
-		catch (Exception ex)
+		catch (ProgramException ex)
 		{
-			throw new InvalidOperationException($"Failed to add convention path '{conventionPath}' to '{path}'. The text patch at line {insertionPlan.LineNumber} did not reparse successfully: {ex.Message}", ex);
+			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{path}'. The text patch at line {insertionPlan.LineNumber} did not reparse successfully: {ex.Message}", ex);
 		}
 
 		if (reparsedConfiguration.Conventions.Count != expectedConventionCount || !reparsedConfiguration.Conventions.Any(x => x.Path == conventionPath))
 		{
-			throw new InvalidOperationException($"Failed to add convention path '{conventionPath}' to '{path}'. The text patch at line {insertionPlan.LineNumber} reparsed, but the resulting configuration did not contain the expected conventions entry.");
+			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{path}'. The text patch at line {insertionPlan.LineNumber} reparsed, but the resulting configuration did not contain the expected conventions entry.");
 		}
 	}
 
@@ -214,7 +214,7 @@ internal static class ConventionConfiguration
 		}
 		catch (YamlException ex)
 		{
-			throw new InvalidOperationException($"Configuration file '{path}' is not valid YAML: {ex.Message}", ex);
+			throw new ProgramException($"Configuration file '{path}' is not valid YAML: {ex.Message}", ex);
 		}
 	}
 
@@ -225,7 +225,7 @@ internal static class ConventionConfiguration
 			Scalar => index + 1,
 			MappingStart => SkipMapping(parsingEvents, index + 1),
 			SequenceStart => SkipSequence(parsingEvents, index + 1),
-			_ => throw new InvalidOperationException($"Unsupported YAML event '{parsingEvents[index].GetType().Name}'."),
+			_ => throw new ProgramException($"Unsupported YAML event '{parsingEvents[index].GetType().Name}'."),
 		};
 	}
 

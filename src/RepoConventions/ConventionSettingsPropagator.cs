@@ -13,7 +13,7 @@ internal static class ConventionSettingsPropagator
 		{
 			ResolutionKind.Value => outcome.Value,
 			ResolutionKind.Omit => null,
-			ResolutionKind.Splice => throw new InvalidOperationException("Array splicing is only valid for array items."),
+			ResolutionKind.Splice => throw new ProgramException("Array splicing is only valid for array items."),
 			_ => throw new InvalidOperationException($"Unsupported resolution kind '{outcome.Kind}'."),
 		};
 	}
@@ -30,7 +30,7 @@ internal static class ConventionSettingsPropagator
 					continue;
 
 				if (propertyOutcome.Kind == ResolutionKind.Splice)
-					throw new InvalidOperationException("Array splicing is only valid for array items.");
+					throw new ProgramException("Array splicing is only valid for array items.");
 
 				resolvedObject[property.Key] = propertyOutcome.Value;
 			}
@@ -259,16 +259,16 @@ internal static class ConventionSettingsPropagator
 		{
 			return PathResolution.Found(JsonValue.Create(ConventionSettingsFileReader.ReadText(context, path)));
 		}
-		catch (InvalidOperationException ex)
+		catch (ProgramException ex)
 		{
 			throw CreateResolutionException(context.SourceConventionName, context.ChildConventionPath, location, rawExpression, ex.Message, ex);
 		}
 	}
 
-	private static InvalidOperationException CreateResolutionException(string compositeConventionName, string childConventionPath, string location, string rawExpression, string reason) =>
+	private static ProgramException CreateResolutionException(string compositeConventionName, string childConventionPath, string location, string rawExpression, string reason) =>
 		new($"Failed to resolve child settings for convention '{childConventionPath}' in composite '{compositeConventionName}' at '{location}' for expression '{rawExpression}': {reason}");
 
-	private static InvalidOperationException CreateResolutionException(string compositeConventionName, string childConventionPath, string location, string rawExpression, string reason, Exception innerException) =>
+	private static ProgramException CreateResolutionException(string compositeConventionName, string childConventionPath, string location, string rawExpression, string reason, Exception innerException) =>
 		new($"Failed to resolve child settings for convention '{childConventionPath}' in composite '{compositeConventionName}' at '{location}' for expression '{rawExpression}': {reason}", innerException);
 
 	private enum NodeContext

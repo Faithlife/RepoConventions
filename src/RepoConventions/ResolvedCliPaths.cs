@@ -39,7 +39,7 @@ internal sealed class ResolvedCliPaths
 		}
 		catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
 		{
-			throw new InvalidOperationException($"Failed to resolve CLI paths: {ex.Message}", ex);
+			throw new ProgramException($"Failed to resolve CLI paths: {ex.Message}", ex);
 		}
 	}
 

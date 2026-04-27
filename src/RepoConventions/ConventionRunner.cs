@@ -15,7 +15,16 @@ internal sealed class ConventionRunner
 
 	public async Task<int> RunAsync(string topLevelConfigPath, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
-		var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+		ConventionFileConfiguration topLevelConfiguration;
+		try
+		{
+			topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+		}
+		catch (InvalidOperationException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
 
 		PullRequestPreparation? pullRequest = null;
 		if (applySettings.OpenPullRequest)

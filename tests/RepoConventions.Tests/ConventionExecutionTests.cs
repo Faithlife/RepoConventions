@@ -35,6 +35,26 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeFailsWithFriendlyMessageWhenConfigYamlIsInvalid()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", "\tconventions:\n\t- path: ./conventions/add-file\n");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("Configuration file"));
+			Assert.That(result.StandardError, Does.Contain(".github\\conventions.yml"));
+			Assert.That(result.StandardError, Does.Contain("line 1, column 1"));
+			Assert.That(result.StandardError, Does.Contain("spaces, not tabs"));
+			Assert.That(result.StandardError, Does.Not.Contain("YamlDotNet.Core.SyntaxErrorException"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesExecutableConventionAndCreatesCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

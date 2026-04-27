@@ -55,13 +55,20 @@ internal static class ConventionConfiguration
 
 	private static ConfigurationFile LoadConfigurationText(string path, string yaml)
 	{
-		var json = s_yamlJsonSerializer.Serialize(s_yamlDeserializer.Deserialize(yaml));
-		var configuration = JsonSerializer.Deserialize<ConfigurationFile>(json);
+		try
+		{
+			var json = s_yamlJsonSerializer.Serialize(s_yamlDeserializer.Deserialize(yaml));
+			var configuration = JsonSerializer.Deserialize<ConfigurationFile>(json);
 
-		if (configuration?.Conventions is null)
-			throw new InvalidOperationException($"Configuration file '{path}' must contain a 'conventions' sequence.");
+			if (configuration?.Conventions is null)
+				throw new InvalidOperationException($"Configuration file '{path}' must contain a 'conventions' sequence.");
 
-		return configuration;
+			return configuration;
+		}
+		catch (YamlException ex)
+		{
+			throw new InvalidOperationException(FormatYamlParseError(path, yaml, ex), ex);
+		}
 	}
 
 	private static ConventionInsertionPlan DetermineConventionInsertionPlan(string path, string yaml)
@@ -328,6 +335,66 @@ internal static class ConventionConfiguration
 	}
 
 	private static string GetNewLineSequence(string yaml) => yaml.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+
+	private static string FormatYamlParseError(string path, string yaml, YamlException ex)
+	{
+		if (TryFindTabIndentation(yaml, out var lineNumber, out var columnNumber))
+			return $"Configuration file '{path}' is not valid YAML at line {lineNumber}, column {columnNumber}: YAML indentation must use spaces, not tabs.";
+
+		var reason = TrimYamlLocationPrefix(ex.Message);
+		if (reason.Contains("invalid tab as indentation", StringComparison.OrdinalIgnoreCase))
+			reason += " YAML indentation must use spaces, not tabs.";
+
+		return ex.Start.Line > 0 && ex.Start.Column > 0
+			? $"Configuration file '{path}' is not valid YAML at line {ex.Start.Line}, column {ex.Start.Column}: {reason}"
+			: $"Configuration file '{path}' is not valid YAML: {reason}";
+	}
+
+	private static string TrimYamlLocationPrefix(string message)
+	{
+		if (!message.StartsWith('('))
+			return message;
+
+		var prefixEnd = message.LastIndexOf("): ", StringComparison.Ordinal);
+		return prefixEnd >= 0 ? message[(prefixEnd + 3)..] : message;
+	}
+
+	private static bool TryFindTabIndentation(string yaml, out int lineNumber, out int columnNumber)
+	{
+		lineNumber = 0;
+		columnNumber = 0;
+		var currentLineNumber = 1;
+
+		var lineStartIndex = 0;
+		for (var index = 0; index <= yaml.Length; index++)
+		{
+			if (index < yaml.Length && yaml[index] is not ('\r' or '\n'))
+				continue;
+
+			for (var lineIndex = lineStartIndex; lineIndex < index; lineIndex++)
+			{
+				if (yaml[lineIndex] == ' ')
+					continue;
+
+				if (yaml[lineIndex] == '\t')
+				{
+					lineNumber = currentLineNumber;
+					columnNumber = lineIndex - lineStartIndex + 1;
+					return true;
+				}
+
+				break;
+			}
+
+			if (index < yaml.Length && yaml[index] == '\r' && index + 1 < yaml.Length && yaml[index + 1] == '\n')
+				index++;
+
+			currentLineNumber++;
+			lineStartIndex = index + 1;
+		}
+
+		return false;
+	}
 
 	private static int GetZeroBasedLineNumber(Mark mark) => checked((int) mark.Line) - 1;
 

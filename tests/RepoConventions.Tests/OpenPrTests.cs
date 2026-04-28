@@ -209,6 +209,7 @@ internal sealed class OpenPrTests
 			  pull-request:
 			    labels:
 			      - dependencies
+			    draft: true
 			    reviewers:
 			      - my-org/dotnet-team
 			    assignees:
@@ -236,6 +237,7 @@ internal sealed class OpenPrTests
 			Assert.That(createInvocation, Does.Contain("repo-conventions"));
 			Assert.That(createInvocation, Does.Contain("automation"));
 			Assert.That(createInvocation, Does.Contain("dependencies"));
+			Assert.That(createInvocation, Does.Contain("--draft"));
 			Assert.That(createInvocation, Does.Contain("--reviewer"));
 			Assert.That(createInvocation, Does.Contain("octocat"));
 			Assert.That(createInvocation, Does.Contain("my-org/build-team"));
@@ -271,69 +273,6 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--draft"));
-		}
-	}
-
-	[Test]
-	public async Task OpenPrModeCreatesDraftPullRequestWhenContributingConventionRequestsIt()
-	{
-		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryGitRepository.CreateBareAsync();
-		var fakeGh = new FakeGitHubCli();
-		repo.WriteFile(".github/conventions.yml", """
-			conventions:
-			- path: ./conventions/add-file
-			  pull-request:
-			    draft: true
-			""");
-		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
-			param([string] $configPath)
-			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
-			""");
-		await repo.CommitAllAsync("Initial commit.");
-		await repo.AddRemoteAsync("origin", origin.RootPath);
-		await repo.PushAsync("origin", "main", setUpstream: true);
-
-		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
-
-		using (Assert.EnterMultipleScope())
-		{
-			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Contain("--draft"));
-		}
-	}
-
-	[Test]
-	public async Task OpenPrModeIgnoresDraftFromConventionThatCreatesNoCommits()
-	{
-		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryGitRepository.CreateBareAsync();
-		var fakeGh = new FakeGitHubCli();
-		repo.WriteFile(".github/conventions.yml", """
-			conventions:
-			- path: ./conventions/no-op
-			  pull-request:
-			    draft: true
-			- path: ./conventions/add-file
-			""");
-		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
-			param([string] $configPath)
-			Write-Output 'no changes'
-			""");
-		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
-			param([string] $configPath)
-			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
-			""");
-		await repo.CommitAllAsync("Initial commit.");
-		await repo.AddRemoteAsync("origin", origin.RootPath);
-		await repo.PushAsync("origin", "main", setUpstream: true);
-
-		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
-
-		using (Assert.EnterMultipleScope())
-		{
-			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(fakeGh.LastInvocation("pr", "create"), Does.Not.Contain("--draft"));
 		}
 	}
 
@@ -503,6 +442,7 @@ internal sealed class OpenPrTests
 			conventions:
 			- path: ./conventions/no-op
 			  pull-request:
+			    draft: true
 			    labels:
 			      - ignored-label
 			    reviewers:
@@ -532,6 +472,7 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(createInvocation, Does.Contain("applied-label"));
+			Assert.That(createInvocation, Does.Not.Contain("--draft"));
 			Assert.That(createInvocation, Does.Not.Contain("ignored-label"));
 			Assert.That(createInvocation, Does.Not.Contain("ignored-reviewer"));
 			Assert.That(body, Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
@@ -652,7 +593,7 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
-	public async Task OpenPrModeAllowsRepeatedConventionApplicationsWithDifferentSettings()
+	public async Task OpenPrModeIncludesOnlyRepeatedConventionApplicationsThatCreateCommitsInPullRequestBody()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
@@ -665,6 +606,12 @@ internal sealed class OpenPrTests
 			- path: ./conventions/write-file
 			  settings:
 			    name: second
+			- path: ./conventions/write-file
+			  settings:
+			    name: shared
+			- path: ./conventions/write-file
+			  settings:
+			    name: shared
 			""");
 		repo.WriteFile(".github/conventions/write-file/convention.ps1", """
 			param([string] $configPath)
@@ -684,43 +631,8 @@ internal sealed class OpenPrTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("first.txt"), Is.True);
 			Assert.That(repo.FileExists("second.txt"), Is.True);
-			Assert.That(body.Split(conventionLink).Length - 1, Is.EqualTo(2));
-		}
-	}
-
-	[Test]
-	public async Task OpenPrModeAllowsRepeatedConventionApplicationsWithSameSettings()
-	{
-		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var origin = await TemporaryGitRepository.CreateBareAsync();
-		var fakeGh = new FakeGitHubCli();
-		repo.WriteFile(".github/conventions.yml", """
-			conventions:
-			- path: ./conventions/write-file
-			  settings:
-			    name: shared
-			- path: ./conventions/write-file
-			  settings:
-			    name: shared
-			""");
-		repo.WriteFile(".github/conventions/write-file/convention.ps1", """
-			param([string] $configPath)
-			$config = Get-Content -Raw $configPath | ConvertFrom-Json
-			Set-Content -Path (Join-Path $PWD "$($config.settings.name).txt") -Value $config.settings.name
-			""");
-		await repo.CommitAllAsync("Initial commit.");
-		await repo.AddRemoteAsync("origin", origin.RootPath);
-		await repo.PushAsync("origin", "main", setUpstream: true);
-
-		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
-		var body = fakeGh.LastInvocation("pr", "create").Last();
-		var conventionLink = "[write-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/write-file)";
-
-		using (Assert.EnterMultipleScope())
-		{
-			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(repo.FileExists("shared.txt"), Is.True);
-			Assert.That(body.Split(conventionLink).Length - 1, Is.EqualTo(1));
+			Assert.That(body.Split(conventionLink).Length - 1, Is.EqualTo(3));
 		}
 	}
 

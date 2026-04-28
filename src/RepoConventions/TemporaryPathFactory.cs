@@ -21,7 +21,7 @@ internal static class TemporaryPathFactory
 			}
 			catch (UnauthorizedAccessException ex)
 			{
-				throw new InvalidOperationException($"Could not create a temporary directory under '{normalizedRootPath}': {ex.Message}", ex);
+				throw new ProgramException($"Could not create a temporary directory under '{normalizedRootPath}': {ex.Message}", ex);
 			}
 		}
 	}
@@ -46,7 +46,7 @@ internal static class TemporaryPathFactory
 			}
 			catch (UnauthorizedAccessException ex)
 			{
-				throw new InvalidOperationException($"Could not create a temporary file under '{normalizedRootPath}': {ex.Message}", ex);
+				throw new ProgramException($"Could not create a temporary file under '{normalizedRootPath}': {ex.Message}", ex);
 			}
 		}
 	}
@@ -68,7 +68,7 @@ internal static class TemporaryPathFactory
 		}
 		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
 		{
-			throw new InvalidOperationException($"Could not create the temporary root '{rootPath}': {ex.Message}", ex);
+			throw new ProgramException($"Could not create the temporary root '{rootPath}': {ex.Message}", ex);
 		}
 	}
 }

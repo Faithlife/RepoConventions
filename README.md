@@ -31,7 +31,7 @@ conventions:
   - path: Faithlife/CodingGuidelines/conventions/repo-conventions-workflow
 ```
 
-Commit `.github/conventions.yml`, then run `repo-conventions apply` from the repository root, which creates and commits the workflow.
+Commit `.github/conventions.yml`, then run `repo-conventions apply` from the repository root, which creates and commits the workflow. Use `repo-conventions add <path> --open-pr` to add the reference, apply it, and open a PR in one run.
 
 ## Configuration
 
@@ -48,7 +48,9 @@ Regarding convention paths:
 
 ## CLI
 
-`repo-conventions add <path>` adds a convention reference to `.github/conventions.yml`, creating the file if needed.
+`repo-conventions add <path> [<path> ...]` adds convention references to `.github/conventions.yml`, creating the file if needed.
+
+`repo-conventions add <path> --open-pr` adds convention references, commits them, applies conventions, and opens or updates a PR for the created commits.
 
 `repo-conventions apply` applies configured conventions and creates commits as needed.
 

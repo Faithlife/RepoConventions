@@ -9,7 +9,7 @@ internal static class ConventionSettingsFileReader
 		var repositoryRoot = GetContainingRepositoryRoot(context.ConfigurationDirectory, context.RepositoryRoot);
 		var resolvedPath = ResolvePath(context, path, repositoryRoot);
 		if (!File.Exists(resolvedPath))
-			throw new InvalidOperationException($"File '{resolvedPath}' was not found.");
+			throw new ProgramException($"File '{resolvedPath}' was not found.");
 
 		try
 		{
@@ -19,14 +19,14 @@ internal static class ConventionSettingsFileReader
 		}
 		catch (DecoderFallbackException ex)
 		{
-			throw new InvalidOperationException($"File '{resolvedPath}' is not valid UTF-8 text.", ex);
+			throw new ProgramException($"File '{resolvedPath}' is not valid UTF-8 text.", ex);
 		}
 	}
 
 	private static string ResolvePath(ConventionSettingsEvaluationContext context, string path, string repositoryRoot)
 	{
 		if (IsNativeAbsolutePath(path))
-			throw new InvalidOperationException($"Native absolute path '{path}' is not allowed.");
+			throw new ProgramException($"Native absolute path '{path}' is not allowed.");
 
 		var combinedPath = path.StartsWith('/')
 			? Path.Combine(repositoryRoot, path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar))
@@ -34,7 +34,7 @@ internal static class ConventionSettingsFileReader
 
 		var resolvedPath = Path.GetFullPath(combinedPath);
 		if (!IsWithinRepositoryRoot(resolvedPath, repositoryRoot))
-			throw new InvalidOperationException($"Resolved path '{resolvedPath}' escapes the repository root '{repositoryRoot}'.");
+			throw new ProgramException($"Resolved path '{resolvedPath}' escapes the repository root '{repositoryRoot}'.");
 
 		return resolvedPath;
 	}

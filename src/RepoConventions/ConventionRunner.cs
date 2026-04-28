@@ -15,18 +15,74 @@ internal sealed class ConventionRunner
 
 	public async Task<int> RunAsync(string topLevelConfigPath, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
-		var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
-
-		PullRequestPreparation? pullRequest = null;
-		if (applySettings.OpenPullRequest)
+		try
 		{
-			pullRequest = await PreparePullRequestAsync(cancellationToken);
-			if (pullRequest is null)
-				return 1;
-		}
+			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
 
+			PullRequestPreparation? pullRequest = null;
+			if (applySettings.OpenPullRequest)
+			{
+				pullRequest = await PreparePullRequestAsync(cancellationToken);
+				if (pullRequest is null)
+					return 1;
+			}
+
+			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, applySettings, pullRequest, cancellationToken);
+		}
+		catch (ProgramException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+	}
+
+	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, bool openPullRequest, CancellationToken cancellationToken)
+	{
+		try
+		{
+			PullRequestPreparation? pullRequest = null;
+			if (openPullRequest)
+			{
+				pullRequest = await PreparePullRequestAsync(cancellationToken);
+				if (pullRequest is null)
+					return 1;
+			}
+
+			var addedConventionPaths = new List<string>();
+			foreach (var conventionPath in conventionPaths)
+			{
+				if (ConventionConfiguration.AddConventionPath(topLevelConfigPath, conventionPath))
+				{
+					addedConventionPaths.Add(conventionPath);
+					await m_settings.StandardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '{configurationDisplayPath}'.");
+				}
+				else
+				{
+					await m_settings.StandardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '{configurationDisplayPath}'.");
+				}
+			}
+
+			if (pullRequest is null)
+				return 0;
+
+			if (addedConventionPaths.Count != 0)
+				await m_settings.TargetGitClient.CommitAllAsync(BuildAddConventionsCommitMessage(addedConventionPaths), cancellationToken);
+
+			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, new ApplyCommandSettings(OpenPullRequest: true, Draft: null, AutoMerge: null, MergeMethod: null), pullRequest, cancellationToken);
+		}
+		catch (ProgramException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+	}
+
+	private async Task<int> RunLoadedConfigurationAsync(string topLevelConfigPath, ConventionFileConfiguration topLevelConfiguration, ApplyCommandSettings applySettings, PullRequestPreparation? pullRequest, CancellationToken cancellationToken)
+	{
+		var planState = new ConventionPlanState();
 		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), planState, plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionOccurrenceId: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
 		if (!planSucceeded)
 			return 1;
 
@@ -43,24 +99,27 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
-	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
+	private static string BuildAddConventionsCommitMessage(List<string> addedConventionPaths) =>
+		addedConventionPaths.Count == 1 ? $"Add convention {addedConventionPaths[0]}" : "Add repository conventions";
+
+	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
 		foreach (var reference in references)
 		{
-			if (!await AddConventionToPlanAsync(reference, configurationPath, allowPullRequestSettings, activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionNames, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, configurationPath, allowPullRequestSettings, activeConventions, planState, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionOccurrenceId, sourceConventionNames, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
 		var configuration = ConventionConfiguration.Load(configPath);
-		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionIdentity, sourceConventionNames, cancellationToken);
+		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, planState, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionOccurrenceId, sourceConventionNames, cancellationToken);
 	}
 
-	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
 		JsonNode? effectiveSettings;
 		ResolvedConvention resolvedConvention;
@@ -79,7 +138,7 @@ internal sealed class ConventionRunner
 			var containingDirectory = Path.GetDirectoryName(configurationPath)!;
 			resolvedConvention = await ResolveConventionAsync(reference.Path, containingDirectory, cancellationToken);
 		}
-		catch (InvalidOperationException ex)
+		catch (ProgramException ex)
 		{
 			await m_settings.StandardError.WriteLineAsync(ex.Message);
 			return false;
@@ -107,17 +166,18 @@ internal sealed class ConventionRunner
 			return false;
 		}
 
+		var occurrenceId = planState.GetNextOccurrenceId();
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
 			if (hasConfiguration)
 			{
 				var childSourceConventionNames = BuildSourceConventionNames(resolvedConvention.DisplayName, sourceConventionNames);
-				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, plannedConventions, effectiveSettings, enableSettingsExpressions: true, resolvedConvention.Identity, childSourceConventionNames, cancellationToken))
+				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, planState, plannedConventions, effectiveSettings, enableSettingsExpressions: true, occurrenceId, childSourceConventionNames, cancellationToken))
 					return false;
 			}
 
-			plannedConventions.Add(new PlannedConvention(resolvedConvention, effectiveSettings, allowPullRequestSettings ? reference.PullRequest : null, hasExecutableScript, sourceConventionIdentity, sourceConventionNames));
+			plannedConventions.Add(new PlannedConvention(occurrenceId, resolvedConvention, effectiveSettings, allowPullRequestSettings ? reference.PullRequest : null, hasExecutableScript, sourceConventionOccurrenceId, sourceConventionNames));
 			return true;
 		}
 		finally
@@ -141,6 +201,7 @@ internal sealed class ConventionRunner
 	{
 		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
 		var openedGitHubActionsGroup = IsRunningInGitHubActions();
+		string conventionResultMessage;
 		if (openedGitHubActionsGroup)
 		{
 			await m_settings.StandardOutput.WriteLineAsync($"::group::{startMessage}");
@@ -164,28 +225,30 @@ internal sealed class ConventionRunner
 
 			var createdCommitCount = await m_settings.TargetGitClient.CountCommitsSinceAsync(headBeforeConvention, cancellationToken);
 			appliedConventions.Add(new AppliedConvention(
+				plannedConvention.OccurrenceId,
 				plannedConvention.ResolvedConvention.Identity,
 				plannedConvention.ResolvedConvention.DisplayName,
 				plannedConvention.ResolvedConvention.TargetRepositoryRelativePath,
 				plannedConvention.ResolvedConvention.RemoteDirectory,
 				plannedConvention.PullRequest,
 				plannedConvention.HasExecutableScript,
-				plannedConvention.SourceConventionIdentity,
+				plannedConvention.SourceConventionOccurrenceId,
 				createdCommitCount));
-			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
+			conventionResultMessage = createdCommitCount switch
 			{
 				0 => $"No changes for convention {plannedConvention.ResolvedConvention.DisplayName}.",
 				1 => $"Created 1 commit for convention {plannedConvention.ResolvedConvention.DisplayName}.",
 				_ => $"Created {createdCommitCount} commits for convention {plannedConvention.ResolvedConvention.DisplayName}.",
-			});
-
-			return true;
+			};
 		}
 		finally
 		{
 			if (openedGitHubActionsGroup)
 				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
 		}
+
+		await m_settings.StandardOutput.WriteLineAsync(conventionResultMessage);
+		return true;
 	}
 
 	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, CancellationToken cancellationToken)
@@ -196,7 +259,7 @@ internal sealed class ConventionRunner
 		{
 			inputPath = TemporaryPathFactory.CreateFile(m_settings.TempRoot, ".json");
 		}
-		catch (InvalidOperationException ex)
+		catch (ProgramException ex)
 		{
 			await m_settings.StandardError.WriteLineAsync(ex.Message);
 			return ConventionExecutionResult.Failed();
@@ -218,7 +281,7 @@ internal sealed class ConventionRunner
 			startInfo.ArgumentList.Add(scriptPath);
 			startInfo.ArgumentList.Add(inputPath);
 
-			using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start pwsh.");
+			using var process = Process.Start(startInfo) ?? throw new ProgramException("Failed to start pwsh.");
 			var outputTask = PumpOutputAsync(process.StandardOutput, m_settings.StandardOutput);
 			var errorTask = PumpOutputAsync(process.StandardError, m_settings.StandardError);
 			await process.WaitForExitAsync(cancellationToken);
@@ -291,13 +354,13 @@ internal sealed class ConventionRunner
 
 		var cloneResult = await GitClient.RunGitAsync(m_settings.TargetRepositoryRoot, ["clone", repositoryUrl, clonePath], cancellationToken);
 		if (cloneResult.ExitCode != 0)
-			throw new InvalidOperationException($"Failed to clone remote convention repository '{repositoryUrl}': {cloneResult.StandardError}{cloneResult.StandardOutput}");
+			throw new ProgramException($"Failed to clone remote convention repository '{repositoryUrl}': {cloneResult.StandardError}{cloneResult.StandardOutput}");
 
 		if (!string.IsNullOrEmpty(remotePath.Ref))
 		{
 			var checkoutResult = await GitClient.RunGitAsync(clonePath, ["checkout", remotePath.Ref], cancellationToken);
 			if (checkoutResult.ExitCode != 0)
-				throw new InvalidOperationException($"Failed to checkout ref '{remotePath.Ref}' in '{repositoryUrl}': {checkoutResult.StandardError}{checkoutResult.StandardOutput}");
+				throw new ProgramException($"Failed to checkout ref '{remotePath.Ref}' in '{repositoryUrl}': {checkoutResult.StandardError}{checkoutResult.StandardOutput}");
 		}
 
 		m_remoteCloneCache.Add(remotePath.Identity, clonePath);
@@ -917,30 +980,30 @@ internal sealed class ConventionRunner
 
 	private static List<AppliedConvention> GetPullRequestBodyConventions(IReadOnlyList<AppliedConvention> appliedConventions)
 	{
-		var visibleConventionIds = new HashSet<string>(StringComparer.Ordinal);
-		var conventionsByIdentity = appliedConventions.ToDictionary(static x => x.Identity, StringComparer.Ordinal);
+		var visibleConventionOccurrenceIds = new HashSet<int>();
+		var conventionsByOccurrenceId = appliedConventions.ToDictionary(static x => x.OccurrenceId);
 
 		foreach (var convention in GetContributingConventions(appliedConventions))
 		{
 			for (var currentConvention = convention;
-				visibleConventionIds.Add(currentConvention.Identity) && currentConvention.SourceConventionIdentity is { } parentIdentity && conventionsByIdentity.TryGetValue(parentIdentity, out currentConvention);
+				visibleConventionOccurrenceIds.Add(currentConvention.OccurrenceId) && currentConvention.SourceConventionOccurrenceId is { } parentOccurrenceId && conventionsByOccurrenceId.TryGetValue(parentOccurrenceId, out currentConvention);
 			)
 			{
 			}
 		}
 
-		return appliedConventions.Where(x => visibleConventionIds.Contains(x.Identity)).ToList();
+		return appliedConventions.Where(x => visibleConventionOccurrenceIds.Contains(x.OccurrenceId)).ToList();
 	}
 
 	private static IEnumerable<string> RenderAppliedConventionLines(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName)
 	{
-		var nodes = appliedConventions.ToDictionary(static x => x.Identity, static x => new AppliedConventionNode(x), StringComparer.Ordinal);
+		var nodes = appliedConventions.ToDictionary(static x => x.OccurrenceId, static x => new AppliedConventionNode(x));
 		var roots = new List<AppliedConventionNode>();
 
 		foreach (var convention in appliedConventions)
 		{
-			var node = nodes[convention.Identity];
-			if (convention.SourceConventionIdentity is { } sourceConventionIdentity && nodes.TryGetValue(sourceConventionIdentity, out var parent))
+			var node = nodes[convention.OccurrenceId];
+			if (convention.SourceConventionOccurrenceId is { } sourceConventionOccurrenceId && nodes.TryGetValue(sourceConventionOccurrenceId, out var parent))
 				parent.Children.Add(node);
 			else
 				roots.Add(node);
@@ -1087,7 +1150,7 @@ internal sealed class ConventionRunner
 	{
 		var directoryPath = Path.GetFullPath(Path.Combine(baseDirectory, conventionPath));
 		if (!IsWithinRepositoryRoot(directoryPath, repositoryRoot))
-			throw new InvalidOperationException($"Resolved convention path '{directoryPath}' escapes the repository root '{repositoryRoot}'.");
+			throw new ProgramException($"Resolved convention path '{directoryPath}' escapes the repository root '{repositoryRoot}'.");
 
 		return directoryPath;
 	}
@@ -1193,7 +1256,7 @@ internal sealed class ConventionRunner
 		foreach (var argument in arguments)
 			startInfo.ArgumentList.Add(argument);
 
-		using var process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start {fileName}.");
+		using var process = Process.Start(startInfo) ?? throw new ProgramException($"Failed to start {fileName}.");
 		var standardOutput = await process.StandardOutput.ReadToEndAsync(cancellationToken);
 		var standardError = await process.StandardError.ReadToEndAsync(cancellationToken);
 		await process.WaitForExitAsync(cancellationToken);
@@ -1212,9 +1275,9 @@ internal sealed class ConventionRunner
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, string ExistingPullRequestBody, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
-	private sealed record PlannedConvention(ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, IReadOnlyList<string> SourceConventionNames);
+	private sealed record PlannedConvention(int OccurrenceId, ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, bool HasExecutableScript, int? SourceConventionOccurrenceId, IReadOnlyList<string> SourceConventionNames);
 
-	private sealed record AppliedConvention(string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, PullRequestSettings? PullRequest, bool HasExecutableScript, string? SourceConventionIdentity, int CreatedCommitCount);
+	private sealed record AppliedConvention(int OccurrenceId, string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, PullRequestSettings? PullRequest, bool HasExecutableScript, int? SourceConventionOccurrenceId, int CreatedCommitCount);
 
 	private sealed record PullRequestBehavior(IReadOnlyList<string> Labels, IReadOnlyList<string> Reviewers, IReadOnlyList<string> Assignees, bool Draft, bool AutoMergeEnabled, string DesiredMergeMethod, bool MergeMethodConflictFallback, bool AutoMergeRequestedExplicitly);
 
@@ -1255,6 +1318,13 @@ internal sealed class ConventionRunner
 		public List<AppliedConventionNode> Children { get; } = [];
 	}
 
+	private sealed class ConventionPlanState
+	{
+		public int GetNextOccurrenceId() => m_nextOccurrenceId++;
+
+		private int m_nextOccurrenceId;
+	}
+
 	private sealed record RemoteDirectoryReference(string Owner, string Repository, string? Ref, string DirectoryPath);
 
 	private sealed record RemoteRepositoryInfo(string Owner, string Repository, string? Ref);
@@ -1273,7 +1343,7 @@ internal sealed class ConventionRunner
 
 			var segments = pathWithoutRef.Split('/', StringSplitOptions.RemoveEmptyEntries);
 			if (segments.Length < 2)
-				throw new InvalidOperationException($"Convention path '{conventionPath}' is not a valid remote convention path.");
+				throw new ProgramException($"Convention path '{conventionPath}' is not a valid remote convention path.");
 
 			var owner = segments[0];
 			var repository = segments[1];

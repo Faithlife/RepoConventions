@@ -140,7 +140,9 @@ Add a reference:
 ```pwsh
 repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk@v1
 repo-conventions add ./conventions/local-policy
+repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
 repo-conventions add ./conventions/local-policy --repo ../target-repo --config .config/repo-conventions.yml
+repo-conventions add ./conventions/local-policy --open-pr
 ```
 
 Apply conventions:
@@ -164,7 +166,7 @@ repo-conventions apply --open-pr --repo ../target-repo --config .config/repo-con
 
 - Run from the Git repository root.
 - `apply` requires a clean working tree.
-- `--open-pr` also requires a non-detached branch with no unpushed commits.
+- `add --open-pr` and `apply --open-pr` require a clean working tree, a non-detached branch, and no unpushed commits.
 - PR automation expects the GitHub CLI to be available and authenticated.
 
 ## Related Docs

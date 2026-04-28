@@ -35,6 +35,55 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeFailsWithFriendlyMessageWhenConfigYamlIsInvalid()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", "\tconventions:\n\t- path: ./conventions/add-file\n");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("Configuration file"));
+			Assert.That(result.StandardError, Does.Contain(".github/conventions.yml"));
+			Assert.That(result.StandardError, Does.Contain("is not valid YAML:"));
+			Assert.That(result.StandardError, Does.Not.Contain("Unhandled exception"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeDoesNotSwallowUnexpectedInvalidOperationException()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/add-file@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var standardOutput = new StringWriter();
+		var standardError = new StringWriter();
+
+		var exitCode = await RepoConventionsCli.InvokeAsync(
+			["apply"],
+			repo.RootPath,
+			standardOutput,
+			standardError,
+			_ => throw new InvalidOperationException("Unexpected resolver failure."),
+			externalCommandRunner: null,
+			CancellationToken.None);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(exitCode, Is.Not.Zero);
+			Assert.That(standardError.ToString(), Does.Contain("Unhandled exception"));
+			Assert.That(standardError.ToString(), Does.Contain("Unexpected resolver failure."));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesExecutableConventionAndCreatesCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -171,7 +220,7 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n::group::Convention add-file\nscript output\nCreated 1 commit for convention add-file.\n::endgroup::"));
+			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n::group::Convention add-file\nscript output\n::endgroup::\nCreated 1 commit for convention add-file."));
 			Assert.That(normalizedOutput, Does.Not.Contain("\nConvention add-file\nscript output"));
 		}
 	}

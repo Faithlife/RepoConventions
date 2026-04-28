@@ -47,7 +47,7 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Not.Zero);
 			Assert.That(result.StandardError, Does.Contain("Configuration file"));
-			Assert.That(result.StandardError, Does.Contain(".github\\conventions.yml"));
+			Assert.That(result.StandardError, Does.Contain(".github/conventions.yml"));
 			Assert.That(result.StandardError, Does.Contain("is not valid YAML:"));
 			Assert.That(result.StandardError, Does.Not.Contain("Unhandled exception"));
 		}

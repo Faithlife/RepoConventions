@@ -12,12 +12,13 @@ internal static class ConventionConfiguration
 	public static ConventionFileConfiguration Load(string path)
 	{
 		var configuration = LoadConfigurationFile(path);
+		var displayPath = FormatPathForDisplay(path);
 
 		var references = new List<ConventionReference>();
 		foreach (var convention in configuration.Conventions)
 		{
 			if (string.IsNullOrWhiteSpace(convention.Path))
-				throw new ProgramException($"Convention entries in '{path}' must include a non-empty 'path'.");
+				throw new ProgramException($"Convention entries in '{displayPath}' must include a non-empty 'path'.");
 
 			references.Add(new ConventionReference(convention.Path, convention.Settings, ConvertPullRequestRecord(convention.PullRequest)));
 		}
@@ -55,34 +56,37 @@ internal static class ConventionConfiguration
 
 	private static ConfigurationFile LoadConfigurationText(string path, string yaml)
 	{
+		var displayPath = FormatPathForDisplay(path);
+
 		try
 		{
 			var json = s_yamlJsonSerializer.Serialize(s_yamlDeserializer.Deserialize(yaml));
 			var configuration = JsonSerializer.Deserialize<ConfigurationFile>(json);
 
 			if (configuration?.Conventions is null)
-				throw new ProgramException($"Configuration file '{path}' must contain a 'conventions' sequence.");
+				throw new ProgramException($"Configuration file '{displayPath}' must contain a 'conventions' sequence.");
 
 			return configuration;
 		}
 		catch (YamlException ex)
 		{
-			throw new ProgramException($"Configuration file '{path}' is not valid YAML: {ex.Message}", ex);
+			throw new ProgramException($"Configuration file '{displayPath}' is not valid YAML: {ex.Message}", ex);
 		}
 	}
 
 	private static ConventionInsertionPlan DetermineConventionInsertionPlan(string path, string yaml)
 	{
+		var displayPath = FormatPathForDisplay(path);
 		var parsingEvents = GetParsingEvents(path, yaml);
 		var rootMappingIndex = parsingEvents.FindIndex(static x => x is MappingStart);
 		if (rootMappingIndex < 0)
-			throw new ProgramException($"Configuration file '{path}' must contain a root mapping.");
+			throw new ProgramException($"Configuration file '{displayPath}' must contain a root mapping.");
 
 		var currentIndex = rootMappingIndex + 1;
 		while (currentIndex < parsingEvents.Count && parsingEvents[currentIndex] is not MappingEnd)
 		{
 			if (parsingEvents[currentIndex] is not Scalar keyEvent)
-				throw new ProgramException($"Configuration file '{path}' must contain scalar mapping keys.");
+				throw new ProgramException($"Configuration file '{displayPath}' must contain scalar mapping keys.");
 
 			var valueIndex = currentIndex + 1;
 			if (keyEvent.Value == "conventions")
@@ -91,13 +95,15 @@ internal static class ConventionConfiguration
 			currentIndex = SkipNode(parsingEvents, valueIndex);
 		}
 
-		throw new ProgramException($"Configuration file '{path}' must contain a 'conventions' sequence.");
+		throw new ProgramException($"Configuration file '{displayPath}' must contain a 'conventions' sequence.");
 	}
 
 	private static ConventionInsertionPlan DetermineConventionInsertionPlan(string path, string yaml, Scalar keyEvent, int valueIndex, List<ParsingEvent> parsingEvents)
 	{
+		var displayPath = FormatPathForDisplay(path);
+
 		if (valueIndex >= parsingEvents.Count || parsingEvents[valueIndex] is not SequenceStart)
-			throw new ProgramException($"The 'conventions' entry in '{path}' must be a sequence to support 'repo-conventions add'.");
+			throw new ProgramException($"The 'conventions' entry in '{displayPath}' must be a sequence to support 'repo-conventions add'.");
 
 		var currentIndex = valueIndex + 1;
 		var itemStartIndexes = new List<int>();
@@ -108,7 +114,7 @@ internal static class ConventionConfiguration
 		}
 
 		if (currentIndex >= parsingEvents.Count || parsingEvents[currentIndex] is not SequenceEnd sequenceEnd)
-			throw new ProgramException($"Could not determine where to append to 'conventions' in '{path}'.");
+			throw new ProgramException($"Could not determine where to append to 'conventions' in '{displayPath}'.");
 
 		var keyLine = GetOneBasedLineNumber(keyEvent.Start);
 		string? itemIndentation = null;
@@ -182,6 +188,7 @@ internal static class ConventionConfiguration
 
 	private static void ValidateConventionInsertion(string path, string conventionPath, int expectedConventionCount, ConventionInsertionPlan insertionPlan, string updatedYaml)
 	{
+		var displayPath = FormatPathForDisplay(path);
 		ConfigurationFile reparsedConfiguration;
 		try
 		{
@@ -189,12 +196,12 @@ internal static class ConventionConfiguration
 		}
 		catch (ProgramException ex)
 		{
-			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{path}'. The text patch at line {insertionPlan.LineNumber} did not reparse successfully: {ex.Message}", ex);
+			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{displayPath}'. The text patch at line {insertionPlan.LineNumber} did not reparse successfully: {ex.Message}", ex);
 		}
 
 		if (reparsedConfiguration.Conventions.Count != expectedConventionCount || !reparsedConfiguration.Conventions.Any(x => x.Path == conventionPath))
 		{
-			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{path}'. The text patch at line {insertionPlan.LineNumber} reparsed, but the resulting configuration did not contain the expected conventions entry.");
+			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{displayPath}'. The text patch at line {insertionPlan.LineNumber} reparsed, but the resulting configuration did not contain the expected conventions entry.");
 		}
 	}
 
@@ -214,7 +221,7 @@ internal static class ConventionConfiguration
 		}
 		catch (YamlException ex)
 		{
-			throw new ProgramException($"Configuration file '{path}' is not valid YAML: {ex.Message}", ex);
+			throw new ProgramException($"Configuration file '{FormatPathForDisplay(path)}' is not valid YAML: {ex.Message}", ex);
 		}
 	}
 
@@ -351,6 +358,8 @@ internal static class ConventionConfiguration
 	}
 
 	private static string NormalizeLineEndings(string text, string newLine) => text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", newLine, StringComparison.Ordinal);
+
+	private static string FormatPathForDisplay(string path) => path.Replace('\\', '/');
 
 	private static PullRequestSettings? ConvertPullRequestRecord(PullRequestRecord? pullRequest) =>
 		pullRequest is null

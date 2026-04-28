@@ -651,6 +651,79 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeAllowsRepeatedConventionApplicationsWithDifferentSettings()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-file
+			  settings:
+			    name: first
+			- path: ./conventions/write-file
+			  settings:
+			    name: second
+			""");
+		repo.WriteFile(".github/conventions/write-file/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			Set-Content -Path (Join-Path $PWD "$($config.settings.name).txt") -Value $config.settings.name
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var body = fakeGh.LastInvocation("pr", "create").Last();
+		var conventionLink = "[write-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/write-file)";
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("first.txt"), Is.True);
+			Assert.That(repo.FileExists("second.txt"), Is.True);
+			Assert.That(body.Split(conventionLink).Length - 1, Is.EqualTo(2));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeAllowsRepeatedConventionApplicationsWithSameSettings()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-file
+			  settings:
+			    name: shared
+			- path: ./conventions/write-file
+			  settings:
+			    name: shared
+			""");
+		repo.WriteFile(".github/conventions/write-file/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			Set-Content -Path (Join-Path $PWD "$($config.settings.name).txt") -Value $config.settings.name
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var body = fakeGh.LastInvocation("pr", "create").Last();
+		var conventionLink = "[write-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/write-file)";
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("shared.txt"), Is.True);
+			Assert.That(body.Split(conventionLink).Length - 1, Is.EqualTo(1));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeDoesNotPushOrCreatePullRequestWhenNoChangesAreMade()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

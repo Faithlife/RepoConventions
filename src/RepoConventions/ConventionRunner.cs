@@ -27,22 +27,7 @@ internal sealed class ConventionRunner
 					return 1;
 			}
 
-			var plannedConventions = new List<PlannedConvention>();
-			var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
-			if (!planSucceeded)
-				return 1;
-
-			await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
-
-			var appliedConventions = new List<AppliedConvention>();
-			var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
-			if (!success)
-				return 1;
-
-			if (pullRequest is not null)
-				return await CompletePullRequestAsync(pullRequest, topLevelConfigPath, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
-
-			return 0;
+			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, applySettings, pullRequest, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{
@@ -50,6 +35,71 @@ internal sealed class ConventionRunner
 			return 1;
 		}
 	}
+
+	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, bool openPullRequest, CancellationToken cancellationToken)
+	{
+		try
+		{
+			PullRequestPreparation? pullRequest = null;
+			if (openPullRequest)
+			{
+				pullRequest = await PreparePullRequestAsync(cancellationToken);
+				if (pullRequest is null)
+					return 1;
+			}
+
+			var addedConventionPaths = new List<string>();
+			foreach (var conventionPath in conventionPaths)
+			{
+				if (ConventionConfiguration.AddConventionPath(topLevelConfigPath, conventionPath))
+				{
+					addedConventionPaths.Add(conventionPath);
+					await m_settings.StandardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '{configurationDisplayPath}'.");
+				}
+				else
+				{
+					await m_settings.StandardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '{configurationDisplayPath}'.");
+				}
+			}
+
+			if (pullRequest is null)
+				return 0;
+
+			if (addedConventionPaths.Count != 0)
+				await m_settings.TargetGitClient.CommitAllAsync(BuildAddConventionsCommitMessage(addedConventionPaths), cancellationToken);
+
+			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, new ApplyCommandSettings(OpenPullRequest: true, Draft: null, AutoMerge: null, MergeMethod: null), pullRequest, cancellationToken);
+		}
+		catch (ProgramException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+	}
+
+	private async Task<int> RunLoadedConfigurationAsync(string topLevelConfigPath, ConventionFileConfiguration topLevelConfiguration, ApplyCommandSettings applySettings, PullRequestPreparation? pullRequest, CancellationToken cancellationToken)
+	{
+		var plannedConventions = new List<PlannedConvention>();
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, allowPullRequestSettings: true, new HashSet<string>(StringComparer.Ordinal), plannedConventions, parentSettings: null, enableSettingsExpressions: false, sourceConventionIdentity: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
+		if (!planSucceeded)
+			return 1;
+
+		await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
+
+		var appliedConventions = new List<AppliedConvention>();
+		var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
+		if (!success)
+			return 1;
+
+		if (pullRequest is not null)
+			return await CompletePullRequestAsync(pullRequest, topLevelConfigPath, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
+
+		return 0;
+	}
+
+	private static string BuildAddConventionsCommitMessage(List<string> addedConventionPaths) =>
+		addedConventionPaths.Count == 1 ? $"Add convention {addedConventionPaths[0]}" : "Add repository conventions";
 
 	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, string? sourceConventionIdentity, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{

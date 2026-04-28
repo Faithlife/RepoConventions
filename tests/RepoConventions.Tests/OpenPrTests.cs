@@ -87,6 +87,108 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task AddOpenPrModeFailsWhenRepositoryIsDirty()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile("README.md", "test");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		repo.WriteFile("dirty.txt", "dirty");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("clean repository"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+			Assert.That(fakeGh.CountCalls("pr", "list"), Is.Zero);
+		}
+	}
+
+	[Test]
+	public async Task AddOpenPrModeFailsWhenHeadIsDetached()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile("README.md", "test");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.DetachHeadAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--open-pr"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("detached HEAD"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddOpenPrModeFailsWhenRepositoryHasUnpushedCommits()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		repo.WriteFile("README.md", "test");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		repo.WriteFile("unpushed.txt", "unpushed");
+		await repo.CommitAllAsync("Unpushed commit.");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--open-pr"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("no unpushed commits"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddOpenPrModeCommitsAddedConventionAppliesItAndCreatesPullRequest()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
+		var recentCommitMessages = await repo.GetRecentCommitMessagesAsync(3);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
+			Assert.That(result.StandardOutput, Does.Contain("Opening pull request from repo-conventions to main..."));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1"));
+			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
+			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(["./conventions/add-file"]));
+			Assert.That(recentCommitMessages, Does.Contain("Apply convention add-file"));
+			Assert.That(recentCommitMessages, Does.Contain("Add convention ./conventions/add-file"));
+			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.EqualTo(1));
+			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[Conventions](https://github.com/example/repo/blob/repo-conventions/.github/conventions.yml)"));
+			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeCreatesMissingLabelsAndAppliesConfiguredMetadata()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

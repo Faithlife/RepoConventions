@@ -49,6 +49,25 @@ internal sealed class AddCommandTests
 	}
 
 	[Test]
+	public async Task AddModeAddsMultipleConventionPaths()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/first", "./conventions/second"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/first'"));
+			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/second'"));
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_multipleConventionPaths));
+		}
+	}
+
+	[Test]
 	public async Task AddModeDoesNotDuplicateExistingConventionPath()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -198,6 +217,7 @@ internal sealed class AddCommandTests
 
 	private static readonly string[] s_addFileConventionPaths = ["./conventions/add-file"];
 	private static readonly string[] s_existingAndNewConventionPaths = ["./conventions/existing", "./conventions/new"];
+	private static readonly string[] s_multipleConventionPaths = ["./conventions/first", "./conventions/second"];
 
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
 

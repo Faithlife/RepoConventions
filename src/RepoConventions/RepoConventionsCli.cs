@@ -33,9 +33,10 @@ internal static class RepoConventionsCli
 		{
 			Description = "Preferred merge method for the generated pull request: merge, squash, or rebase.",
 		};
-		var conventionPathArgument = new Argument<string>("path")
+		var conventionPathArgument = new Argument<string[]>("path")
 		{
-			Description = "Convention path to add to the configuration file.",
+			Description = "Convention path or paths to add to the configuration file.",
+			Arity = ArgumentArity.OneOrMore,
 		};
 
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
@@ -96,9 +97,14 @@ internal static class RepoConventionsCli
 		{
 			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
 		};
+		var addOpenPrOption = new Option<bool>("--open-pr")
+		{
+			Description = "Add conventions, apply conventions, create commits, and open or update a pull request.",
+		};
 		addCommand.Options.Add(addRepoOption);
 		addCommand.Options.Add(addConfigOption);
 		addCommand.Options.Add(addTempOption);
+		addCommand.Options.Add(addOpenPrOption);
 		addCommand.Arguments.Add(conventionPathArgument);
 		addCommand.SetAction(parseResult =>
 			ExecuteAddAsync(
@@ -106,10 +112,13 @@ internal static class RepoConventionsCli
 				addRepoOption,
 				addConfigOption,
 				addTempOption,
+				addOpenPrOption,
 				conventionPathArgument,
 				currentDirectory,
 				standardOutput,
 				standardError,
+				remoteRepositoryUrlResolver,
+				externalCommandRunner,
 				cancellationToken));
 		rootCommand.Subcommands.Add(addCommand);
 
@@ -190,7 +199,7 @@ internal static class RepoConventionsCli
 		}
 	}
 
-	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Argument<string> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -202,13 +211,27 @@ internal static class RepoConventionsCli
 				return 1;
 			}
 
-			var conventionPath = parseResult.GetValue(conventionPathArgument) ?? throw new InvalidOperationException("Missing convention path.");
-			if (ConventionConfiguration.AddConventionPath(paths.ConfigurationPath, conventionPath))
-				await standardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '{paths.ConfigurationDisplayPath}'.");
-			else
-				await standardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '{paths.ConfigurationDisplayPath}'.");
+			var openPullRequest = parseResult.GetValue(openPrOption);
+			if (openPullRequest && !await GitRepositoryValidator.IsCleanAsync(paths.RepositoryRoot, cancellationToken))
+			{
+				await standardError.WriteLineAsync("repo-conventions must be run from a clean repository.");
+				return 1;
+			}
 
-			return 0;
+			var conventionPaths = parseResult.GetValue(conventionPathArgument) ?? throw new InvalidOperationException("Missing convention path.");
+			var gitClient = new GitClient(paths.RepositoryRoot);
+			var conventionRunner = new ConventionRunner(new ConventionRunnerSettings
+			{
+				TargetRepositoryRoot = paths.RepositoryRoot,
+				TargetGitClient = gitClient,
+				TempRoot = paths.TempRoot,
+				StandardOutput = standardOutput,
+				StandardError = standardError,
+				RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
+				ExternalCommandRunner = externalCommandRunner,
+			});
+
+			return await conventionRunner.AddAsync(paths.ConfigurationPath, paths.ConfigurationDisplayPath, conventionPaths, openPullRequest, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{

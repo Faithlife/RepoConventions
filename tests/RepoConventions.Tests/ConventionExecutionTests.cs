@@ -107,6 +107,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.StandardOutput, Does.StartWith("Applying 1 conventions..." + Environment.NewLine));
 			Assert.That(normalizedOutput, Does.Contain("\nConvention add-file\nCreated 1 commit for convention add-file."));
 			Assert.That(result.StandardOutput, Does.Contain("Created 1 commit for convention add-file."));
+			Assert.That(result.StandardOutput, Does.EndWith("Created 1 commit total." + Environment.NewLine));
 			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
 		}
 	}
@@ -164,6 +165,7 @@ internal sealed class ConventionExecutionTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(normalizedOutput, Does.Contain("\nConvention no-op\nscript output\n"));
 			Assert.That(normalizedOutput, Does.Contain("No changes for convention no-op."));
+			Assert.That(normalizedOutput, Does.EndWith("No commits created.\n"));
 			Assert.That(normalizedOutput, Does.Not.Contain("Created 1 commit for convention no-op."));
 		}
 	}

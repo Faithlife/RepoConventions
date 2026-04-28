@@ -86,6 +86,9 @@ internal sealed class ConventionRunner
 		if (!planSucceeded)
 			return 1;
 
+		if (pullRequest is { HasOpenPullRequest: true })
+			await WriteExistingPullRequestPreparationMessageAsync(pullRequest);
+
 		await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
 
 		var appliedConventions = new List<AppliedConvention>();
@@ -96,7 +99,17 @@ internal sealed class ConventionRunner
 		if (pullRequest is not null)
 			return await CompletePullRequestAsync(pullRequest, topLevelConfigPath, topLevelConfiguration.PullRequest, applySettings, appliedConventions, cancellationToken);
 
+		await WriteCommitSummaryAsync(appliedConventions.Sum(static x => x.CreatedCommitCount));
 		return 0;
+	}
+
+	private async Task WriteExistingPullRequestPreparationMessageAsync(PullRequestPreparation pullRequest)
+	{
+		if (pullRequest.PullRequestUrl is null)
+			throw new InvalidOperationException("Existing pull request URL was not provided.");
+
+		var operation = pullRequest.RestartedFromBase ? "Rebuilding" : "Amending";
+		await m_settings.StandardOutput.WriteLineAsync($"{operation} existing pull request: {pullRequest.PullRequestUrl}");
 	}
 
 	private static string BuildAddConventionsCommitMessage(List<string> addedConventionPaths) =>
@@ -474,15 +487,19 @@ internal sealed class ConventionRunner
 			throw new InvalidOperationException($"Failed to compare branches: {newCommits.StandardError}{newCommits.StandardOutput}");
 
 		var pullRequestCommitCount = int.Parse(newCommits.StandardOutput.Trim(), CultureInfo.InvariantCulture);
+		var createdCommitCount = await CountPullRequestCommitsCreatedByRunAsync(pullRequest, pullRequestCommitCount, cancellationToken);
 		var repositoryInfo = await GetTargetRepositoryInfoAsync(cancellationToken);
 		var targetRepositoryUrl = repositoryInfo.Url;
 		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName, GetTargetRepositoryRelativePathOrNull(topLevelConfigPath));
 		var behavior = BuildPullRequestBehavior(repositoryPullRequestSettings, appliedConventions, applySettings);
 		if (pullRequest.HasOpenPullRequest)
-			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, body, behavior, repositoryInfo, cancellationToken);
+			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, createdCommitCount, body, behavior, repositoryInfo, cancellationToken);
 
 		if (pullRequestCommitCount == 0)
+		{
+			await WriteCommitSummaryAsync(createdCommitCount);
 			return 0;
+		}
 
 		if (!await EnsureRepositoryLabelsAsync(behavior.Labels, cancellationToken))
 			return 1;
@@ -503,15 +520,17 @@ internal sealed class ConventionRunner
 		if (pullRequestUrl is null)
 		{
 			await m_settings.StandardOutput.WriteLineAsync("Opened pull request.");
+			await WritePullRequestCommitSummaryAsync(pullRequest, createdCommitCount, pullRequestUrl: null);
 			return 0;
 		}
 
 		var autoMergeOutcome = await CompleteAutoMergeStepAsync(pullRequestUrl, behavior, repositoryInfo, cancellationToken);
 		await WritePullRequestAnnouncementAsync("Opened pull request", pullRequestUrl, behavior, autoMergeOutcome);
+		await WritePullRequestCommitSummaryAsync(pullRequest, createdCommitCount, pullRequestUrl);
 		return autoMergeOutcome.ExitCode;
 	}
 
-	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, string pullRequestBody, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
+	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, int createdCommitCount, string pullRequestBody, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
 	{
 		if (pullRequest.PullRequestUrl is null)
 			throw new InvalidOperationException("Existing pull request URL was not provided.");
@@ -531,6 +550,7 @@ internal sealed class ConventionRunner
 				return 1;
 
 			await m_settings.StandardOutput.WriteLineAsync($"Closed pull request: {pullRequest.PullRequestUrl}");
+			await WritePullRequestCommitSummaryAsync(pullRequest, createdCommitCount, pullRequest.PullRequestUrl);
 			return 0;
 		}
 
@@ -557,12 +577,18 @@ internal sealed class ConventionRunner
 		var autoMergeOutcome = await CompleteAutoMergeStepAsync(pullRequest.PullRequestUrl, behavior, repositoryInfo, cancellationToken);
 		var shouldReportPullRequest = commitsChanged || bodyChanged || ShouldReportPullRequestAnnouncement(behavior, autoMergeOutcome);
 		if (shouldReportPullRequest)
-		{
 			await WritePullRequestAnnouncementAsync("Updated pull request", pullRequest.PullRequestUrl, behavior, autoMergeOutcome);
-			return autoMergeOutcome.ExitCode;
-		}
 
+		await WritePullRequestCommitSummaryAsync(pullRequest, createdCommitCount, pullRequest.PullRequestUrl);
 		return autoMergeOutcome.ExitCode;
+	}
+
+	private async Task<int> CountPullRequestCommitsCreatedByRunAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, CancellationToken cancellationToken)
+	{
+		if (!pullRequest.HasOpenPullRequest || pullRequest.RestartedFromBase || pullRequest.ExistingBranchHead is null)
+			return pullRequestCommitCount;
+
+		return await m_settings.TargetGitClient.CountCommitsSinceAsync(pullRequest.ExistingBranchHead, cancellationToken);
 	}
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
@@ -645,6 +671,32 @@ internal sealed class ConventionRunner
 		var details = BuildPullRequestAnnouncementDetails(behavior, autoMergeOutcome);
 		var suffix = details.Count == 0 ? "" : $" ({string.Join("; ", details)})";
 		await m_settings.StandardOutput.WriteLineAsync($"{message}: {pullRequestUrl}{suffix}");
+	}
+
+	private async Task WriteCommitSummaryAsync(int commitCount) =>
+		await m_settings.StandardOutput.WriteLineAsync(commitCount switch
+		{
+			0 => "No commits created.",
+			1 => "Created 1 commit total.",
+			_ => $"Created {commitCount.ToString(CultureInfo.InvariantCulture)} commits total.",
+		});
+
+	private async Task WritePullRequestCommitSummaryAsync(PullRequestPreparation pullRequest, int commitCount, string? pullRequestUrl)
+	{
+		if (pullRequest.HasOpenPullRequest && !pullRequest.RestartedFromBase && commitCount == 0 && pullRequestUrl is not null)
+		{
+			await m_settings.StandardOutput.WriteLineAsync($"No commits added to PR: {pullRequestUrl}");
+			return;
+		}
+
+		var summary = commitCount switch
+		{
+			0 => "No commits created in PR",
+			1 => "Created 1 commit in PR",
+			_ => $"Created {commitCount.ToString(CultureInfo.InvariantCulture)} commits in PR",
+		};
+
+		await m_settings.StandardOutput.WriteLineAsync(pullRequestUrl is null ? $"{summary}." : $"{summary}: {pullRequestUrl}");
 	}
 
 	private static bool ShouldReportPullRequestAnnouncement(PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome) =>

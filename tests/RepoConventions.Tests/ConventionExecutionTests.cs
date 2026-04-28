@@ -220,7 +220,7 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n::group::Convention add-file\nscript output\nCreated 1 commit for convention add-file.\n::endgroup::"));
+			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n::group::Convention add-file\nscript output\n::endgroup::\nCreated 1 commit for convention add-file."));
 			Assert.That(normalizedOutput, Does.Not.Contain("\nConvention add-file\nscript output"));
 		}
 	}

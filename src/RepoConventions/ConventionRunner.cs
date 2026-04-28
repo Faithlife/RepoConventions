@@ -201,6 +201,7 @@ internal sealed class ConventionRunner
 	{
 		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
 		var openedGitHubActionsGroup = IsRunningInGitHubActions();
+		string conventionResultMessage;
 		if (openedGitHubActionsGroup)
 		{
 			await m_settings.StandardOutput.WriteLineAsync($"::group::{startMessage}");
@@ -233,20 +234,21 @@ internal sealed class ConventionRunner
 				plannedConvention.HasExecutableScript,
 				plannedConvention.SourceConventionOccurrenceId,
 				createdCommitCount));
-			await m_settings.StandardOutput.WriteLineAsync(createdCommitCount switch
+			conventionResultMessage = createdCommitCount switch
 			{
 				0 => $"No changes for convention {plannedConvention.ResolvedConvention.DisplayName}.",
 				1 => $"Created 1 commit for convention {plannedConvention.ResolvedConvention.DisplayName}.",
 				_ => $"Created {createdCommitCount} commits for convention {plannedConvention.ResolvedConvention.DisplayName}.",
-			});
-
-			return true;
+			};
 		}
 		finally
 		{
 			if (openedGitHubActionsGroup)
 				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
 		}
+
+		await m_settings.StandardOutput.WriteLineAsync(conventionResultMessage);
+		return true;
 	}
 
 	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, CancellationToken cancellationToken)

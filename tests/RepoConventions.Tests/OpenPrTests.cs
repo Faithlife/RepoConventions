@@ -69,6 +69,7 @@ internal sealed class OpenPrTests
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Contain("Opening pull request from repo-conventions to main..."));
 			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1"));
+			Assert.That(result.StandardOutput, Does.EndWith("Created 1 commit in PR: https://github.com/example/repo/pull/1" + Environment.NewLine));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
@@ -744,6 +745,7 @@ internal sealed class OpenPrTests
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request"));
+			Assert.That(result.StandardOutput, Does.EndWith("No commits created." + Environment.NewLine));
 		}
 	}
 
@@ -924,13 +926,16 @@ internal sealed class OpenPrTests
 		await repo.DeleteBranchAsync("repo-conventions");
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request is already open:"));
+			Assert.That(normalizedOutput, Does.StartWith("Amending existing pull request: https://github.com/example/repo/pull/1\nApplying 1 conventions...\n"));
 			Assert.That(result.StandardOutput, Does.Contain("Updated pull request: https://github.com/example/repo/pull/1"));
+			Assert.That(result.StandardOutput, Does.EndWith("Created 1 commit in PR: https://github.com/example/repo/pull/1" + Environment.NewLine));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
@@ -972,13 +977,16 @@ internal sealed class OpenPrTests
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 		var editInvocations = fakeGh.Invocations.Where(static x => x.Length >= 2 && x[0] == "pr" && x[1] == "edit").ToList();
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request is already open:"));
+			Assert.That(normalizedOutput, Does.StartWith("Rebuilding existing pull request: https://github.com/example/repo/pull/1\nApplying 1 conventions...\n"));
 			Assert.That(result.StandardOutput, Does.Contain("Updated pull request: https://github.com/example/repo/pull/1"));
+			Assert.That(result.StandardOutput, Does.EndWith("Created 1 commit in PR: https://github.com/example/repo/pull/1" + Environment.NewLine));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
 			Assert.That(repo.FileExists("base.txt"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
@@ -1068,7 +1076,50 @@ internal sealed class OpenPrTests
 		}
 	}
 
+	[Test]
+	public async Task OpenPrModeReportsNoCommitsAddedWhenAmendingExistingPullRequestWithoutNewCommits()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: BuildEmptyPullRequestBody("repo-conventions"));
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/no-op
+			""");
+		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'no changes'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewBranchAsync("repo-conventions");
+		repo.WriteFile("existing.txt", "existing");
+		await repo.CommitAllAsync("Existing convention commit.");
+		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
+		await repo.SwitchToBranchAsync("main");
+		await repo.DeleteBranchAsync("repo-conventions");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(normalizedOutput, Does.StartWith("Amending existing pull request: https://github.com/example/repo/pull/1\nApplying 1 conventions...\n"));
+			Assert.That(normalizedOutput, Does.Contain("No changes for convention no-op."));
+			Assert.That(result.StandardOutput, Does.EndWith("No commits added to PR: https://github.com/example/repo/pull/1" + Environment.NewLine));
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.Zero);
+		}
+	}
+
 	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
+
+	private static string BuildEmptyPullRequestBody(string branchName) =>
+		$"[Conventions](https://github.com/example/repo/blob/{branchName}/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):";
 
 	private static string BuildSingleConventionPullRequestBody(string branchName, string conventionName, string conventionPath) => string.Join(
 		Environment.NewLine,

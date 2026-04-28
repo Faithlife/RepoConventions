@@ -1116,8 +1116,6 @@ internal sealed class OpenPrTests
 		}
 	}
 
-	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
-
 	private static string BuildEmptyPullRequestBody(string branchName) =>
 		$"[Conventions](https://github.com/example/repo/blob/{branchName}/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):";
 
@@ -1125,19 +1123,6 @@ internal sealed class OpenPrTests
 		Environment.NewLine,
 		$"[Conventions](https://github.com/example/repo/blob/{branchName}/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
 		$"- [{conventionName}](https://github.com/example/repo/tree/{branchName}/{conventionPath})");
-
-	private static class CliInvocation
-	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver = null, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner = null)
-		{
-			var standardOutput = new StringWriter();
-			var standardError = new StringWriter();
-
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, CancellationToken.None);
-
-			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
-		}
-	}
 
 	private sealed class FakeGitHubCli
 	{

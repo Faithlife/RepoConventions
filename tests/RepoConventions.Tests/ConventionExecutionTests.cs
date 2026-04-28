@@ -171,11 +171,9 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	[NonParallelizable]
 	public async Task CommitModeWritesBlankLineBeforeStartMessageWithoutGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", null);
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -187,7 +185,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, useGitHubActionsGroupMarkers: false);
 		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 		using (Assert.EnterMultipleScope())
@@ -200,11 +198,9 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	[NonParallelizable]
 	public async Task CommitModeWrapsConventionOutputInGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", "true");
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -216,7 +212,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, useGitHubActionsGroupMarkers: true);
 		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 		using (Assert.EnterMultipleScope())
@@ -1372,21 +1368,6 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
-	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
-
-	private static class CliInvocation
-	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver = null)
-		{
-			var standardOutput = new StringWriter();
-			var standardError = new StringWriter();
-
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner: null, CancellationToken.None);
-
-			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
-		}
-	}
-
 	private static Func<RemoteRepositoryUrlRequest, string> LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
 		request =>
 			request is { Owner: "local-test", Repository: "remote-conventions" }
@@ -1428,19 +1409,4 @@ internal sealed class ConventionExecutionTests
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent", "Apply convention child"];
 	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];
-
-	private sealed class TemporaryEnvironmentVariable : IDisposable
-	{
-		public TemporaryEnvironmentVariable(string name, string? value)
-		{
-			m_name = name;
-			m_originalValue = Environment.GetEnvironmentVariable(name);
-			Environment.SetEnvironmentVariable(name, value);
-		}
-
-		public void Dispose() => Environment.SetEnvironmentVariable(m_name, m_originalValue);
-
-		private readonly string m_name;
-		private readonly string? m_originalValue;
-	}
 }

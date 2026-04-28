@@ -8,7 +8,11 @@ internal static class RepoConventionsCli
 		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
 
 	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, useGitHubActionsGroupMarkers: null, cancellationToken);
+
+	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool? useGitHubActionsGroupMarkers, CancellationToken cancellationToken)
 	{
+		var shouldUseGitHubActionsGroupMarkers = useGitHubActionsGroupMarkers ?? IsRunningInGitHubActions();
 		var openPrOption = new Option<bool>("--open-pr")
 		{
 			Description = "Apply conventions, create commits, and open or update a pull request.",
@@ -81,6 +85,7 @@ internal static class RepoConventionsCli
 				standardError,
 				remoteRepositoryUrlResolver,
 				externalCommandRunner,
+				shouldUseGitHubActionsGroupMarkers,
 				cancellationToken));
 		rootCommand.Subcommands.Add(applyCommand);
 
@@ -119,6 +124,7 @@ internal static class RepoConventionsCli
 				standardError,
 				remoteRepositoryUrlResolver,
 				externalCommandRunner,
+				shouldUseGitHubActionsGroupMarkers,
 				cancellationToken));
 		rootCommand.Subcommands.Add(addCommand);
 
@@ -126,7 +132,7 @@ internal static class RepoConventionsCli
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
 	}
 
-	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -177,6 +183,7 @@ internal static class RepoConventionsCli
 				TempRoot = paths.TempRoot,
 				StandardOutput = standardOutput,
 				StandardError = standardError,
+				UseGitHubActionsGroupMarkers = useGitHubActionsGroupMarkers,
 				RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 				ExternalCommandRunner = externalCommandRunner,
 			});
@@ -199,7 +206,7 @@ internal static class RepoConventionsCli
 		}
 	}
 
-	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -227,6 +234,7 @@ internal static class RepoConventionsCli
 				TempRoot = paths.TempRoot,
 				StandardOutput = standardOutput,
 				StandardError = standardError,
+				UseGitHubActionsGroupMarkers = useGitHubActionsGroupMarkers,
 				RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 				ExternalCommandRunner = externalCommandRunner,
 			});
@@ -245,23 +253,25 @@ internal static class RepoConventionsCli
 
 	private static async Task<int> InvokeParseResultAsync(ParseResult parseResult, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
 	{
-		var originalOutput = Console.Out;
-		var originalError = Console.Error;
+		var invocationConfiguration = new InvocationConfiguration
+		{
+			Output = standardOutput,
+			Error = standardError,
+		};
 
 		try
 		{
-			Console.SetOut(standardOutput);
-			Console.SetError(standardError);
-			return await parseResult.InvokeAsync(cancellationToken: cancellationToken);
+			return await parseResult.InvokeAsync(invocationConfiguration, cancellationToken);
 		}
 		finally
 		{
-			Console.SetOut(originalOutput);
-			Console.SetError(originalError);
 			await standardOutput.FlushAsync(cancellationToken);
 			await standardError.FlushAsync(cancellationToken);
 		}
 	}
+
+	private static bool IsRunningInGitHubActions() =>
+		string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
 
 	private static class GitRepositoryValidator
 	{

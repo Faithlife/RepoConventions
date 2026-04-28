@@ -95,19 +95,4 @@ internal sealed class GitRepoTests
 			Assert.That(result.StandardOutput, Does.Not.Contain("--commit"));
 		}
 	}
-
-	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
-
-	private static class CliInvocation
-	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory)
-		{
-			var standardOutput = new StringWriter();
-			var standardError = new StringWriter();
-
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, CancellationToken.None);
-
-			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
-		}
-	}
 }

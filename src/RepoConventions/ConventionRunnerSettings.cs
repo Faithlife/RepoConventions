@@ -12,6 +12,8 @@ internal sealed class ConventionRunnerSettings
 
 	public required TextWriter StandardError { get; init; }
 
+	public required bool UseGitHubActionsGroupMarkers { get; init; }
+
 	public Func<RemoteRepositoryUrlRequest, string>? RemoteRepositoryUrlResolver { get; init; }
 
 	public Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? ExternalCommandRunner { get; init; }

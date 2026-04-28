@@ -213,7 +213,7 @@ internal sealed class ConventionRunner
 	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
 	{
 		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
-		var openedGitHubActionsGroup = IsRunningInGitHubActions();
+		var openedGitHubActionsGroup = m_settings.UseGitHubActionsGroupMarkers;
 		string conventionResultMessage;
 		if (openedGitHubActionsGroup)
 		{
@@ -1086,9 +1086,6 @@ internal sealed class ConventionRunner
 
 	private static string[] BuildSourceConventionNames(string sourceConventionName, IReadOnlyList<string> sourceConventionNames) =>
 		[sourceConventionName, .. sourceConventionNames];
-
-	private static bool IsRunningInGitHubActions() =>
-		string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
 
 	private static string BuildMergeBaseFailureMessage(string startingBranch, string pullRequestBranch, GitMergeBaseResult mergeBaseResult)
 	{

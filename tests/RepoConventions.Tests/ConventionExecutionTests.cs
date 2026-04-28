@@ -171,11 +171,9 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	[NonParallelizable]
 	public async Task CommitModeWritesBlankLineBeforeStartMessageWithoutGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", null);
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -187,7 +185,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, useGitHubActionsGroupMarkers: false);
 		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 		using (Assert.EnterMultipleScope())
@@ -200,11 +198,9 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	[NonParallelizable]
 	public async Task CommitModeWrapsConventionOutputInGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var environmentVariableScope = new TemporaryEnvironmentVariable("GITHUB_ACTIONS", "true");
 		repo.WriteFile(".github/conventions.yml", """
 			conventions:
 			- path: ./conventions/add-file
@@ -216,7 +212,7 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, useGitHubActionsGroupMarkers: true);
 		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
 
 		using (Assert.EnterMultipleScope())
@@ -1227,7 +1223,7 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	public async Task CommitModeReadsTextFromRelativePathWithinRemoteConventionRepository()
+	public async Task CommitModeReadsTextFromRelativeAndRootPathsWithinRemoteConventionRepository()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
@@ -1235,9 +1231,11 @@ internal sealed class ConventionExecutionTests
 			conventions:
 			- path: ./write-settings
 			  settings:
-			    text: ${{ readText("./body.txt") }}
+			    relativeText: ${{ readText("./body.txt") }}
+			    rootText: ${{ readText("/docs/body.txt") }}
 			""");
 		remoteRepo.WriteFile("conventions/read-settings/body.txt", "remote relative body");
+		remoteRepo.WriteFile("docs/body.txt", "remote root body");
 		remoteRepo.WriteFile("conventions/read-settings/write-settings/convention.ps1", """
 			param([string] $configPath)
 			$config = Get-Content -Raw $configPath | ConvertFrom-Json
@@ -1260,45 +1258,8 @@ internal sealed class ConventionExecutionTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(settingsJson, Does.Contain("\"text\":\"remote relative body\""));
-		}
-	}
-
-	[Test]
-	public async Task CommitModeReadsTextFromRootRelativePathWithinRemoteConventionRepository()
-	{
-		using var repo = await TemporaryGitRepository.CreateAsync();
-		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
-		remoteRepo.WriteFile("conventions/read-settings-root/convention.yml", """
-			conventions:
-			- path: ./write-settings
-			  settings:
-			    text: ${{ readText("/docs/body.txt") }}
-			""");
-		remoteRepo.WriteFile("docs/body.txt", "remote root body");
-		remoteRepo.WriteFile("conventions/read-settings-root/write-settings/convention.ps1", """
-			param([string] $configPath)
-			$config = Get-Content -Raw $configPath | ConvertFrom-Json
-			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
-			""");
-		await remoteRepo.CommitAllAsync("Initial remote commit.");
-
-		repo.WriteFile(".github/conventions.yml", """
-			conventions:
-			- path: local-test/remote-conventions/conventions/read-settings-root@main
-			""");
-		await repo.CommitAllAsync("Initial commit.");
-
-		var result = await CliInvocation.InvokeAsync(
-			["apply"],
-			repo.RootPath,
-			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
-		var settingsJson = await repo.ReadFileAsync("settings.json");
-
-		using (Assert.EnterMultipleScope())
-		{
-			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(settingsJson, Does.Contain("\"text\":\"remote root body\""));
+			Assert.That(settingsJson, Does.Contain("\"relativeText\":\"remote relative body\""));
+			Assert.That(settingsJson, Does.Contain("\"rootText\":\"remote root body\""));
 		}
 	}
 
@@ -1372,21 +1333,6 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
-	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
-
-	private static class CliInvocation
-	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver = null)
-		{
-			var standardOutput = new StringWriter();
-			var standardError = new StringWriter();
-
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner: null, CancellationToken.None);
-
-			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
-		}
-	}
-
 	private static Func<RemoteRepositoryUrlRequest, string> LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
 		request =>
 			request is { Owner: "local-test", Repository: "remote-conventions" }
@@ -1428,19 +1374,4 @@ internal sealed class ConventionExecutionTests
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent", "Apply convention child"];
 	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];
-
-	private sealed class TemporaryEnvironmentVariable : IDisposable
-	{
-		public TemporaryEnvironmentVariable(string name, string? value)
-		{
-			m_name = name;
-			m_originalValue = Environment.GetEnvironmentVariable(name);
-			Environment.SetEnvironmentVariable(name, value);
-		}
-
-		public void Dispose() => Environment.SetEnvironmentVariable(m_name, m_originalValue);
-
-		private readonly string m_name;
-		private readonly string? m_originalValue;
-	}
 }

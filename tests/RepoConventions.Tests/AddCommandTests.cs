@@ -218,19 +218,4 @@ internal sealed class AddCommandTests
 	private static readonly string[] s_addFileConventionPaths = ["./conventions/add-file"];
 	private static readonly string[] s_existingAndNewConventionPaths = ["./conventions/existing", "./conventions/new"];
 	private static readonly string[] s_multipleConventionPaths = ["./conventions/first", "./conventions/second"];
-
-	private sealed record CliInvocationResult(int ExitCode, string StandardOutput, string StandardError);
-
-	private static class CliInvocation
-	{
-		public static async Task<CliInvocationResult> InvokeAsync(string[] args, string workingDirectory)
-		{
-			var standardOutput = new StringWriter();
-			var standardError = new StringWriter();
-
-			var exitCode = await RepoConventionsCli.InvokeAsync(args, workingDirectory, standardOutput, standardError, CancellationToken.None);
-
-			return new CliInvocationResult(exitCode, standardOutput.ToString(), standardError.ToString());
-		}
-	}
 }

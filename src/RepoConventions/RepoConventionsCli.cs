@@ -4,6 +4,9 @@ namespace RepoConventions;
 
 internal static class RepoConventionsCli
 {
+	internal const int CanceledExitCode = 130;
+	internal const string ShutdownRequestedMessage = "Shutdown requested.";
+
 	public static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
 		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
 
@@ -204,6 +207,10 @@ internal static class RepoConventionsCli
 			await standardError.WriteLineAsync(ex.Message);
 			return 1;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			return await WriteCancellationMessageAsync(standardError);
+		}
 	}
 
 	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, CancellationToken cancellationToken)
@@ -246,6 +253,10 @@ internal static class RepoConventionsCli
 			await standardError.WriteLineAsync(ex.Message);
 			return 1;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			return await WriteCancellationMessageAsync(standardError);
+		}
 	}
 
 	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken) =>
@@ -263,11 +274,21 @@ internal static class RepoConventionsCli
 		{
 			return await parseResult.InvokeAsync(invocationConfiguration, cancellationToken);
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			return await WriteCancellationMessageAsync(standardError);
+		}
 		finally
 		{
-			await standardOutput.FlushAsync(cancellationToken);
-			await standardError.FlushAsync(cancellationToken);
+			await standardOutput.FlushAsync(CancellationToken.None);
+			await standardError.FlushAsync(CancellationToken.None);
 		}
+	}
+
+	private static async Task<int> WriteCancellationMessageAsync(TextWriter standardError)
+	{
+		await standardError.WriteLineAsync(ShutdownRequestedMessage);
+		return CanceledExitCode;
 	}
 
 	private static bool IsRunningInGitHubActions() =>

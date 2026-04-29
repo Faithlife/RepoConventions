@@ -144,9 +144,17 @@ internal sealed class GitClient
 			startInfo.ArgumentList.Add(argument);
 
 		using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start git.");
-		var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
+		var standardOutputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+		var standardErrorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+		try
+		{
+			await ProcessRunner.WaitForExitAsync(process, cancellationToken);
+		}
+		finally
+		{
+			if (process.HasExited)
+				await Task.WhenAll(standardOutputTask, standardErrorTask);
+		}
 
 		return new GitCommandResult(
 			process.ExitCode,

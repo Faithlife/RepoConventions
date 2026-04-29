@@ -223,6 +223,7 @@ internal sealed class ConventionRunner
 		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
 		var openedGitHubActionsGroup = m_settings.UseGitHubActionsGroupMarkers;
 		string conventionResultMessage;
+		var wroteConventionResultMessage = false;
 		if (openedGitHubActionsGroup)
 		{
 			await m_settings.StandardOutput.WriteLineAsync($"::group::{startMessage}");
@@ -261,6 +262,11 @@ internal sealed class ConventionRunner
 				1 => $"Created 1 commit for convention {plannedConvention.ResolvedConvention.DisplayName}.",
 				_ => $"Created {createdCommitCount} commits for convention {plannedConvention.ResolvedConvention.DisplayName}.",
 			};
+			if (openedGitHubActionsGroup && createdCommitCount == 0)
+			{
+				await m_settings.StandardOutput.WriteLineAsync(conventionResultMessage);
+				wroteConventionResultMessage = true;
+			}
 		}
 		finally
 		{
@@ -268,7 +274,8 @@ internal sealed class ConventionRunner
 				await m_settings.StandardOutput.WriteLineAsync("::endgroup::");
 		}
 
-		await m_settings.StandardOutput.WriteLineAsync(conventionResultMessage);
+		if (!wroteConventionResultMessage)
+			await m_settings.StandardOutput.WriteLineAsync(conventionResultMessage);
 		return true;
 	}
 
@@ -521,6 +528,7 @@ internal sealed class ConventionRunner
 		if (!await EnsureRepositoryLabelsAsync(behavior.Labels, cancellationToken))
 			return 1;
 
+		await m_settings.StandardOutput.WriteLineAsync($"Pushing branch {pullRequest.BranchName}...");
 		await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, force: false, cancellationToken);
 		if (pullRequest.HasOpenPullRequest)
 			return 0;

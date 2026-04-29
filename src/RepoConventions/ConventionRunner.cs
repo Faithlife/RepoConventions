@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -294,6 +295,8 @@ internal sealed class ConventionRunner
 				WorkingDirectory = m_settings.TargetRepositoryRoot,
 				RedirectStandardError = true,
 				RedirectStandardOutput = true,
+				StandardErrorEncoding = Encoding.UTF8,
+				StandardOutputEncoding = Encoding.UTF8,
 				UseShellExecute = false,
 			};
 			startInfo.ArgumentList.Add("-NoProfile");
@@ -1334,6 +1337,8 @@ internal sealed class ConventionRunner
 			WorkingDirectory = workingDirectory,
 			RedirectStandardError = true,
 			RedirectStandardOutput = true,
+			StandardErrorEncoding = Encoding.UTF8,
+			StandardOutputEncoding = Encoding.UTF8,
 			UseShellExecute = false,
 		};
 

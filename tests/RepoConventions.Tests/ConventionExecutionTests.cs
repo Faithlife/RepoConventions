@@ -171,6 +171,31 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeDecodesUtf8ConventionOutput()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/utf8-output
+			""");
+		repo.WriteFile(".github/conventions/utf8-output/convention.ps1", """
+			[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+			Write-Output "$([char] 0x25CF) 23 files found"
+			[Console]::Error.WriteLine("$([char] 0x25E6) `"global.json`"")
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardOutput, Does.Contain("\u25CF 23 files found"));
+			Assert.That(result.StandardError, Does.Contain("\u25E6 \"global.json\""));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeWritesBlankLineBeforeStartMessageWithoutGitHubActionsGroupMarkers()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

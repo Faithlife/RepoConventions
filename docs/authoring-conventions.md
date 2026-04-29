@@ -92,6 +92,7 @@ Behavior:
 - The script runs with `pwsh`.
 - The current working directory is the target repository root.
 - The first argument is the path to a JSON file that contains a `settings` property.
+- RepoConventions decodes redirected convention stdout and stderr as UTF-8. Set `[Console]::OutputEncoding` in the script before calling native tools so their output is emitted as UTF-8 too.
 
 Authoring expectations:
 

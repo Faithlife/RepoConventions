@@ -84,6 +84,63 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeReturnsCanceledExitCodeWhenCancellationIsRequested()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var cancellation = new CancellationTokenSource();
+		await cancellation.CancelAsync();
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, cancellationToken: cancellation.Token);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.EqualTo(RepoConventionsCli.CanceledExitCode));
+			Assert.That(result.StandardError, Is.EqualTo(RepoConventionsCli.ShutdownRequestedMessage + Environment.NewLine));
+			Assert.That(result.StandardError, Does.Not.Contain("Unhandled exception"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeStopsConventionScriptWhenCancellationIsRequested()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/slow
+			""");
+		repo.WriteFile(".github/conventions/slow/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'started.txt') -Value 'started'
+			Start-Sleep -Seconds 1
+			Set-Content -Path (Join-Path $PWD 'completed.txt') -Value 'completed'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		using var cancellation = new CancellationTokenSource();
+
+		var invocationTask = CliInvocation.InvokeAsync(["apply"], repo.RootPath, cancellationToken: cancellation.Token);
+		try
+		{
+			await WaitForFileAsync(repo, "started.txt");
+			await cancellation.CancelAsync();
+
+			var result = await invocationTask;
+			await Task.Delay(TimeSpan.FromMilliseconds(1500));
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.EqualTo(RepoConventionsCli.CanceledExitCode));
+				Assert.That(repo.FileExists("completed.txt"), Is.False);
+				Assert.That(result.StandardError, Is.EqualTo(RepoConventionsCli.ShutdownRequestedMessage + Environment.NewLine));
+			}
+		}
+		finally
+		{
+			await cancellation.CancelAsync();
+			await invocationTask;
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesExecutableConventionAndCreatesCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -1395,6 +1452,15 @@ internal sealed class ConventionExecutionTests
 			$config = Get-Content -Raw $configPath | ConvertFrom-Json
 			$config.settings | ConvertTo-Json -Compress -Depth 10 | Set-Content -Path (Join-Path $PWD 'settings.json')
 			""");
+	}
+
+	private static async Task WaitForFileAsync(TemporaryGitRepository repo, string relativePath)
+	{
+		var deadline = DateTime.UtcNow.AddSeconds(5);
+		while (!repo.FileExists(relativePath) && DateTime.UtcNow < deadline)
+			await Task.Delay(50);
+
+		Assert.That(repo.FileExists(relativePath), Is.True, $"{relativePath} was not created.");
 	}
 
 	private static string NormalizeConventionOutput(string output)

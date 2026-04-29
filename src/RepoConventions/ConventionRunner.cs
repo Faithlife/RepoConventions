@@ -307,8 +307,15 @@ internal sealed class ConventionRunner
 			using var process = Process.Start(startInfo) ?? throw new ProgramException("Failed to start pwsh.");
 			var outputTask = PumpOutputAsync(process.StandardOutput, m_settings.StandardOutput);
 			var errorTask = PumpOutputAsync(process.StandardError, m_settings.StandardError);
-			await process.WaitForExitAsync(cancellationToken);
-			await Task.WhenAll(outputTask, errorTask);
+			try
+			{
+				await ProcessRunner.WaitForExitAsync(process, cancellationToken);
+			}
+			finally
+			{
+				if (process.HasExited)
+					await Task.WhenAll(outputTask, errorTask);
+			}
 
 			if (process.ExitCode != 0)
 			{
@@ -1346,11 +1353,19 @@ internal sealed class ConventionRunner
 			startInfo.ArgumentList.Add(argument);
 
 		using var process = Process.Start(startInfo) ?? throw new ProgramException($"Failed to start {fileName}.");
-		var standardOutput = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var standardError = await process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
+		var standardOutputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+		var standardErrorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+		try
+		{
+			await ProcessRunner.WaitForExitAsync(process, cancellationToken);
+		}
+		finally
+		{
+			if (process.HasExited)
+				await Task.WhenAll(standardOutputTask, standardErrorTask);
+		}
 
-		return new ExternalCommandResult(process.ExitCode, standardOutput, standardError);
+		return new ExternalCommandResult(process.ExitCode, await standardOutputTask, await standardErrorTask);
 	}
 
 	private sealed record ConventionExecutionResult(bool Succeeded)

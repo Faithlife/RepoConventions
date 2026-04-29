@@ -126,10 +126,12 @@ internal sealed class ConventionRunner
 		return true;
 	}
 
-	private async Task<bool> BuildConventionPlanFromFileAsync(string configPath, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
+	private async Task<ConventionFileConfiguration?> BuildConventionPlanFromFileAsync(string configPath, bool requireConventions, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
 	{
-		var configuration = ConventionConfiguration.Load(configPath);
-		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, planState, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionOccurrenceId, sourceConventionNames, cancellationToken);
+		var configuration = ConventionConfiguration.Load(configPath, requireConventions);
+		return await BuildConventionPlanAsync(configuration.Conventions, configPath, ShouldAllowConventionPullRequestSettings(configPath), activeConventions, planState, plannedConventions, parentSettings, enableSettingsExpressions, sourceConventionOccurrenceId, sourceConventionNames, cancellationToken)
+			? configuration
+			: null;
 	}
 
 	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, bool allowPullRequestSettings, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
@@ -183,14 +185,19 @@ internal sealed class ConventionRunner
 		activeConventions.Add(resolvedConvention.Identity);
 		try
 		{
+			PullRequestSettings? conventionPullRequest = null;
 			if (hasConfiguration)
 			{
 				var childSourceConventionNames = BuildSourceConventionNames(resolvedConvention.DisplayName, sourceConventionNames);
-				if (!await BuildConventionPlanFromFileAsync(conventionConfigPath, activeConventions, planState, plannedConventions, effectiveSettings, enableSettingsExpressions: true, occurrenceId, childSourceConventionNames, cancellationToken))
+				var conventionConfiguration = await BuildConventionPlanFromFileAsync(conventionConfigPath, requireConventions: !hasExecutableScript, activeConventions, planState, plannedConventions, effectiveSettings, enableSettingsExpressions: true, occurrenceId, childSourceConventionNames, cancellationToken);
+				if (conventionConfiguration is null)
 					return false;
+
+				if (ShouldAllowConventionPullRequestSettings(conventionConfigPath))
+					conventionPullRequest = conventionConfiguration.PullRequest;
 			}
 
-			plannedConventions.Add(new PlannedConvention(occurrenceId, resolvedConvention, effectiveSettings, allowPullRequestSettings ? reference.PullRequest : null, hasExecutableScript, sourceConventionOccurrenceId, sourceConventionNames));
+			plannedConventions.Add(new PlannedConvention(occurrenceId, resolvedConvention, effectiveSettings, MergePullRequestSettings(conventionPullRequest, allowPullRequestSettings ? reference.PullRequest : null), hasExecutableScript, sourceConventionOccurrenceId, sourceConventionNames));
 			return true;
 		}
 		finally
@@ -1086,6 +1093,34 @@ internal sealed class ConventionRunner
 
 	private static string[] BuildSourceConventionNames(string sourceConventionName, IReadOnlyList<string> sourceConventionNames) =>
 		[sourceConventionName, .. sourceConventionNames];
+
+	private static PullRequestSettings? MergePullRequestSettings(PullRequestSettings? conventionSettings, PullRequestSettings? referenceSettings)
+	{
+		if (conventionSettings is null)
+			return referenceSettings;
+
+		if (referenceSettings is null)
+			return conventionSettings;
+
+		return new PullRequestSettings(
+			MergeSettingLists(conventionSettings.Labels, referenceSettings.Labels),
+			MergeSettingLists(conventionSettings.Reviewers, referenceSettings.Reviewers),
+			MergeSettingLists(conventionSettings.Assignees, referenceSettings.Assignees),
+			referenceSettings.Draft ?? conventionSettings.Draft,
+			referenceSettings.AutoMerge ?? conventionSettings.AutoMerge,
+			referenceSettings.MergeMethod ?? conventionSettings.MergeMethod);
+	}
+
+	private static List<string>? MergeSettingLists(IReadOnlyList<string>? conventionValues, IReadOnlyList<string>? referenceValues)
+	{
+		if (conventionValues is null)
+			return referenceValues?.ToList();
+
+		if (referenceValues is null)
+			return conventionValues.ToList();
+
+		return [.. conventionValues, .. referenceValues];
+	}
 
 	private static string BuildMergeBaseFailureMessage(string startingBranch, string pullRequestBranch, GitMergeBaseResult mergeBaseResult)
 	{

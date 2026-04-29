@@ -418,6 +418,30 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeFailsWhenNonExecutableConventionYamlOmitsChildConventions()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/metadata-only
+			""");
+		repo.WriteFile(".github/conventions/metadata-only/convention.yml", """
+			pull-request:
+			  labels:
+			    - maintenance
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("must contain a 'conventions' sequence"));
+		}
+	}
+
+	[Test]
 	public async Task CommitModeAppliesCompositeConventionBeforeItsScript()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

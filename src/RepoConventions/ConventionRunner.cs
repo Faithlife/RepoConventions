@@ -703,7 +703,7 @@ internal sealed class ConventionRunner
 	}
 
 	private async Task WriteCommitSummaryAsync(int commitCount) =>
-		await m_settings.StandardOutput.WriteLineAsync(commitCount switch
+		await WriteFinalSummaryLineAsync(commitCount switch
 		{
 			0 => "No commits created.",
 			1 => "Created 1 commit total.",
@@ -714,7 +714,7 @@ internal sealed class ConventionRunner
 	{
 		if (pullRequest.HasOpenPullRequest && !pullRequest.RestartedFromBase && commitCount == 0 && pullRequestUrl is not null)
 		{
-			await m_settings.StandardOutput.WriteLineAsync($"No commits added to PR: {pullRequestUrl}");
+			await WriteFinalSummaryLineAsync($"No commits added to PR: {pullRequestUrl}");
 			return;
 		}
 
@@ -725,7 +725,15 @@ internal sealed class ConventionRunner
 			_ => $"Created {commitCount.ToString(CultureInfo.InvariantCulture)} commits in PR",
 		};
 
-		await m_settings.StandardOutput.WriteLineAsync(pullRequestUrl is null ? $"{summary}." : $"{summary}: {pullRequestUrl}");
+		await WriteFinalSummaryLineAsync(pullRequestUrl is null ? $"{summary}." : $"{summary}: {pullRequestUrl}");
+	}
+
+	private async Task WriteFinalSummaryLineAsync(string summaryLine)
+	{
+		await m_settings.StandardOutput.WriteLineAsync(summaryLine);
+
+		if (!string.IsNullOrWhiteSpace(m_settings.GitHubStepSummaryPath))
+			await File.AppendAllTextAsync(m_settings.GitHubStepSummaryPath, summaryLine + Environment.NewLine);
 	}
 
 	private static bool ShouldReportPullRequestAnnouncement(PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome) =>

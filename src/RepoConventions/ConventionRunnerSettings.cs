@@ -14,6 +14,8 @@ internal sealed class ConventionRunnerSettings
 
 	public required bool UseGitHubActionsGroupMarkers { get; init; }
 
+	public string? GitHubStepSummaryPath { get; init; }
+
 	public Func<RemoteRepositoryUrlRequest, string>? RemoteRepositoryUrlResolver { get; init; }
 
 	public Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? ExternalCommandRunner { get; init; }

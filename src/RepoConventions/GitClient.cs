@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 
 namespace RepoConventions;
 
@@ -134,6 +135,8 @@ internal sealed class GitClient
 			WorkingDirectory = workingDirectory,
 			RedirectStandardError = true,
 			RedirectStandardOutput = true,
+			StandardErrorEncoding = Encoding.UTF8,
+			StandardOutputEncoding = Encoding.UTF8,
 			UseShellExecute = false,
 		};
 

@@ -306,6 +306,31 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeWritesNoChangeMessageInsideGitHubActionsGroupMarkers()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/no-op
+			""");
+		repo.WriteFile(".github/conventions/no-op/convention.ps1", """
+			param([string] $configPath)
+			Write-Output 'script output'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, useGitHubActionsGroupMarkers: true);
+		var normalizedOutput = result.StandardOutput.ReplaceLineEndings("\n");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(normalizedOutput, Does.StartWith("Applying 1 conventions...\n::group::Convention no-op\nscript output\nNo changes for convention no-op.\n::endgroup::\nNo commits created."));
+			Assert.That(normalizedOutput, Does.Not.Contain("::endgroup::\nNo changes for convention no-op."));
+		}
+	}
+
+	[Test]
 	public async Task CommitModePassesOnlySettingsToExecutableConvention()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

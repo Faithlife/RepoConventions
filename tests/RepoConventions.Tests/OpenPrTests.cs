@@ -67,6 +67,7 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Pushing branch repo-conventions..."));
 			Assert.That(result.StandardOutput, Does.Contain("Opening pull request from repo-conventions to main..."));
 			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1"));
 			Assert.That(result.StandardOutput, Does.EndWith("Created 1 commit in PR: https://github.com/example/repo/pull/1" + Environment.NewLine));
@@ -174,6 +175,7 @@ internal sealed class OpenPrTests
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
+			Assert.That(result.StandardOutput, Does.Contain("Pushing branch repo-conventions..."));
 			Assert.That(result.StandardOutput, Does.Contain("Opening pull request from repo-conventions to main..."));
 			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1"));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
@@ -789,6 +791,7 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Pushing branch repo-conventions-2..."));
 			Assert.That(result.StandardOutput, Does.Contain("Opening pull request from repo-conventions-2 to main..."));
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request is already open:"));
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions-2"));

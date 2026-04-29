@@ -44,6 +44,17 @@ Supported behaviors:
 - Relative child paths are resolved relative to the YAML file that contains them.
 - Root-relative child paths beginning with `/` resolve from the root of the repository that contains the YAML file.
 
+When a convention directory also contains `convention.ps1`, `convention.yml` may omit `conventions` entirely. This is useful for executable conventions that do not compose children but do want to declare convention-owned pull request settings.
+
+Example:
+
+```yaml
+pull-request:
+  labels:
+    - dependencies
+  auto-merge: true
+```
+
 ## Settings Expressions
 
 Composite conventions support two expression forms inside child settings.

@@ -9,9 +9,9 @@ namespace RepoConventions;
 
 internal static class ConventionConfiguration
 {
-	public static ConventionFileConfiguration Load(string path)
+	public static ConventionFileConfiguration Load(string path, bool requireConventions = true)
 	{
-		var configuration = LoadConfigurationFile(path);
+		var configuration = LoadConfigurationFile(path, requireConventions);
 		var displayPath = FormatPathForDisplay(path);
 
 		var references = new List<ConventionReference>();
@@ -52,9 +52,9 @@ internal static class ConventionConfiguration
 		return true;
 	}
 
-	private static ConfigurationFile LoadConfigurationFile(string path) => LoadConfigurationText(path, File.ReadAllText(path));
+	private static ConfigurationFile LoadConfigurationFile(string path, bool requireConventions) => LoadConfigurationText(path, File.ReadAllText(path), requireConventions);
 
-	private static ConfigurationFile LoadConfigurationText(string path, string yaml)
+	private static ConfigurationFile LoadConfigurationText(string path, string yaml, bool requireConventions = true)
 	{
 		var displayPath = FormatPathForDisplay(path);
 
@@ -63,8 +63,21 @@ internal static class ConventionConfiguration
 			var json = s_yamlJsonSerializer.Serialize(s_yamlDeserializer.Deserialize(yaml));
 			var configuration = JsonSerializer.Deserialize<ConfigurationFile>(json);
 
-			if (configuration?.Conventions is null)
+			if (configuration is null)
+			{
+				if (!requireConventions)
+					return new ConfigurationFile { Conventions = [] };
+
 				throw new ProgramException($"Configuration file '{displayPath}' must contain a 'conventions' sequence.");
+			}
+
+			if (configuration.Conventions is null)
+			{
+				if (!requireConventions)
+					return new ConfigurationFile { PullRequest = configuration.PullRequest, Conventions = [] };
+
+				throw new ProgramException($"Configuration file '{displayPath}' must contain a 'conventions' sequence.");
+			}
 
 			return configuration;
 		}

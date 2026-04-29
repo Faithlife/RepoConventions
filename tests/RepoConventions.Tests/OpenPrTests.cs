@@ -248,6 +248,46 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeAppliesPullRequestSettingsFromExecutableConventionYamlWithoutChildConventions()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/labeled
+			""");
+		repo.WriteFile(".github/conventions/labeled/convention.yml", """
+			pull-request:
+			  labels:
+			    - maintenance
+			  reviewers:
+			    - octocat
+			""");
+		repo.WriteFile(".github/conventions/labeled/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var createInvocation = fakeGh.LastInvocation("pr", "create");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(createInvocation, Does.Contain("maintenance"));
+			Assert.That(createInvocation, Does.Contain("--reviewer"));
+			Assert.That(createInvocation, Does.Contain("octocat"));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1 (labels: maintenance; reviewers: octocat)"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeCreatesDraftPullRequestWhenRepositorySettingRequiresIt()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

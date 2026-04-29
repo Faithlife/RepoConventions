@@ -117,6 +117,7 @@ conventions:
 Notes:
 
 - Convention-level PR settings are only relevant when that convention actually contributes commits.
+- An executable convention stored in the target repository may also declare its own `pull-request` settings in `convention.yml` without declaring child `conventions`.
 - RepoConventions always applies its own `repo-conventions` label to generated PRs, even though it omits that label from the status summary.
 - When `draft` is enabled, new pull requests are created as drafts. Existing PRs keep their current draft or ready state.
 - `repo-conventions apply --open-pr --draft` and `repo-conventions apply --open-pr --no-draft` override configured draft behavior for a single run.

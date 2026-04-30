@@ -201,6 +201,43 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
+	public async Task CommitModeWritesFinalSummaryLineToGitHubStepSummary()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var summaryDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(summaryDirectory);
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		try
+		{
+			var summaryPath = Path.Combine(summaryDirectory, "step-summary.md");
+			await File.WriteAllTextAsync(summaryPath, "Existing summary." + Environment.NewLine);
+
+			var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath, gitHubStepSummaryPath: summaryPath);
+			var stepSummary = await File.ReadAllTextAsync(summaryPath);
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(stepSummary, Is.EqualTo("Existing summary." + Environment.NewLine + "Created 1 commit total." + Environment.NewLine));
+				Assert.That(stepSummary, Does.Not.Contain("Created 1 commit for convention add-file."));
+			}
+		}
+		finally
+		{
+			Directory.Delete(summaryDirectory, recursive: true);
+		}
+	}
+
+	[Test]
 	public async Task CommitModeReportsNoChangesForConventionThatCreatesNoCommit()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

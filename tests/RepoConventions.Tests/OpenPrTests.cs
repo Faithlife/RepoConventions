@@ -475,6 +475,40 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeReportsAutoMergeFailureOnSeparateLine()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli
+		{
+			PrMergeExitCode = 1,
+			PrMergeError = "GraphQL: Resource not accessible by personal access token (mergePullRequest)",
+		};
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  auto-merge: true
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1" + Environment.NewLine + "Auto-merge failed: GraphQL: Resource not accessible by personal access token (mergePullRequest)"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("Opened pull request: https://github.com/example/repo/pull/1 (auto-merge,"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeOnlyUsesConventionMetadataFromConventionsThatCreateCommits()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

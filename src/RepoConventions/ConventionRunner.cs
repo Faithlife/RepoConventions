@@ -696,10 +696,14 @@ internal sealed class ConventionRunner
 		var details = BuildPullRequestAnnouncementDetails(behavior, autoMergeOutcome);
 		var suffix = details.Count == 0 ? "" : $" ({string.Join("; ", details)})";
 		await m_settings.StandardOutput.WriteLineAsync($"{message}: {pullRequestUrl}{suffix}");
+
+		var autoMergeFailureMessage = BuildAutoMergeFailureMessage(autoMergeOutcome);
+		if (!string.IsNullOrWhiteSpace(autoMergeFailureMessage))
+			await m_settings.StandardOutput.WriteLineAsync(autoMergeFailureMessage);
 	}
 
 	private async Task WriteCommitSummaryAsync(int commitCount) =>
-		await m_settings.StandardOutput.WriteLineAsync(commitCount switch
+		await WriteFinalSummaryLineAsync(commitCount switch
 		{
 			0 => "No commits created.",
 			1 => "Created 1 commit total.",
@@ -710,7 +714,7 @@ internal sealed class ConventionRunner
 	{
 		if (pullRequest.HasOpenPullRequest && !pullRequest.RestartedFromBase && commitCount == 0 && pullRequestUrl is not null)
 		{
-			await m_settings.StandardOutput.WriteLineAsync($"No commits added to PR: {pullRequestUrl}");
+			await WriteFinalSummaryLineAsync($"No commits added to PR: {pullRequestUrl}");
 			return;
 		}
 
@@ -721,7 +725,15 @@ internal sealed class ConventionRunner
 			_ => $"Created {commitCount.ToString(CultureInfo.InvariantCulture)} commits in PR",
 		};
 
-		await m_settings.StandardOutput.WriteLineAsync(pullRequestUrl is null ? $"{summary}." : $"{summary}: {pullRequestUrl}");
+		await WriteFinalSummaryLineAsync(pullRequestUrl is null ? $"{summary}." : $"{summary}: {pullRequestUrl}");
+	}
+
+	private async Task WriteFinalSummaryLineAsync(string summaryLine)
+	{
+		await m_settings.StandardOutput.WriteLineAsync(summaryLine);
+
+		if (!string.IsNullOrWhiteSpace(m_settings.GitHubStepSummaryPath))
+			await File.AppendAllTextAsync(m_settings.GitHubStepSummaryPath, summaryLine + Environment.NewLine);
 	}
 
 	private static bool ShouldReportPullRequestAnnouncement(PullRequestBehavior behavior, AutoMergeOutcome autoMergeOutcome) =>
@@ -750,6 +762,15 @@ internal sealed class ConventionRunner
 			details.Add("merge method conflict; defaulted to squash");
 
 		return details;
+	}
+
+	private static string? BuildAutoMergeFailureMessage(AutoMergeOutcome autoMergeOutcome)
+	{
+		if (string.IsNullOrWhiteSpace(autoMergeOutcome.ErrorMessage))
+			return null;
+
+		var reason = SummarizeAutoMergeError(autoMergeOutcome.ErrorMessage);
+		return string.IsNullOrWhiteSpace(reason) ? "Auto-merge failed." : $"Auto-merge failed: {reason}";
 	}
 
 	private static List<string> BuildCreatePullRequestArguments(PullRequestPreparation pullRequest, string body, PullRequestBehavior behavior)
@@ -883,7 +904,7 @@ internal sealed class ConventionRunner
 			return AutoMergeOutcome.NotUsed();
 
 		if (repositoryInfo.AutoMergeAllowed is false)
-			return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, "Auto-merge is not enabled for this repository.", "auto-merge, unavailable");
+			return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, "Auto-merge is not enabled for this repository.", "Auto-merge is not enabled for this repository.");
 
 		var attemptedMethods = new HashSet<string>(StringComparer.Ordinal);
 		string? fallbackReason = null;
@@ -903,30 +924,27 @@ internal sealed class ConventionRunner
 				return AutoMergeOutcome.Success(method, fallbackReason);
 
 			if (!result.ShouldTryNextMethod)
-				return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, result.ErrorMessage, BuildAutoMergeFailureSummary(fallbackReason, result.ErrorMessage));
+				return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, result.ErrorMessage, BuildAutoMergeFailureReason(fallbackReason, result.ErrorMessage));
 
 			fallbackReason ??= SummarizeAutoMergeError(method, result.ErrorMessage);
 		}
 
-		return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, $"Could not enable auto-merge using any allowed merge method for {pullRequestUrl}.", BuildAutoMergeFailureSummary(fallbackReason, null));
+		return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, $"Could not enable auto-merge using any allowed merge method for {pullRequestUrl}.", BuildAutoMergeFailureReason(fallbackReason, null));
 	}
 
-	private async Task<AutoMergeOutcome> HandleAutoMergeFailureAsync(bool failCommand, string message, string summary)
+	private async Task<AutoMergeOutcome> HandleAutoMergeFailureAsync(bool failCommand, string message, string reason)
 	{
 		if (failCommand)
 		{
 			await m_settings.StandardError.WriteLineAsync(message);
-			return AutoMergeOutcome.Failed(summary);
+			return AutoMergeOutcome.Failed(reason);
 		}
 
-		return AutoMergeOutcome.Warning(summary);
+		return AutoMergeOutcome.Warning(reason);
 	}
 
-	private static string BuildAutoMergeFailureSummary(string? fallbackReason, string? errorMessage)
-	{
-		var reason = fallbackReason ?? SummarizeAutoMergeError(errorMessage);
-		return string.IsNullOrWhiteSpace(reason) ? "auto-merge failed" : $"auto-merge, {reason}";
-	}
+	private static string BuildAutoMergeFailureReason(string? fallbackReason, string? errorMessage) =>
+		fallbackReason ?? SummarizeAutoMergeError(errorMessage);
 
 	private static string SummarizeAutoMergeError(string method, string errorMessage)
 	{
@@ -1393,21 +1411,21 @@ internal sealed class ConventionRunner
 
 	private sealed record PullRequestBehavior(IReadOnlyList<string> Labels, IReadOnlyList<string> Reviewers, IReadOnlyList<string> Assignees, bool Draft, bool AutoMergeEnabled, string DesiredMergeMethod, bool MergeMethodConflictFallback, bool AutoMergeRequestedExplicitly);
 
-	private sealed record AutoMergeOutcome(int ExitCode, string? Summary)
+	private sealed record AutoMergeOutcome(int ExitCode, string? Summary, string? ErrorMessage)
 	{
-		public static AutoMergeOutcome Failed(string summary) => new(1, summary);
+		public static AutoMergeOutcome Failed(string errorMessage) => new(1, null, errorMessage);
 
-		public static AutoMergeOutcome NotUsed() => new(0, null);
+		public static AutoMergeOutcome NotUsed() => new(0, null, null);
 
 		public static AutoMergeOutcome Success(string method, string? fallbackReason)
 		{
 			var summary = string.IsNullOrWhiteSpace(fallbackReason)
 				? $"auto-merge, {FormatMergeMethodSummary(method)}"
 				: $"auto-merge, {FormatMergeMethodSummary(method)}, {fallbackReason}";
-			return new(0, summary);
+			return new(0, summary, null);
 		}
 
-		public static AutoMergeOutcome Warning(string summary) => new(0, summary);
+		public static AutoMergeOutcome Warning(string errorMessage) => new(0, null, errorMessage);
 	}
 
 	private sealed record AutoMergeAttemptResult(bool Succeeded, bool ShouldTryNextMethod, string ErrorMessage)

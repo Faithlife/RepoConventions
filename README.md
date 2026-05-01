@@ -56,6 +56,8 @@ Regarding convention paths:
 
 `repo-conventions apply --open-pr` applies conventions, creates commits, and opens or updates a PR for any created commits.
 
+`--git-no-verify` is an optional flag for commands that trigger repo-conventions-managed `git commit` or `git push` invocations, passing `--no-verify` through to those operations.
+
 When applying conventions, run from the repository root, and start with a clean working tree. With `--open-pr`, there should also be no unpushed local commits.
 
 ## More Documentation

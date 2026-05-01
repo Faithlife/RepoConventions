@@ -76,13 +76,17 @@ internal sealed class GitClient
 		};
 	}
 
-	public async Task<bool> CommitAllAsync(string message, CancellationToken cancellationToken)
+	public async Task<bool> CommitAllAsync(string message, bool gitNoVerify, CancellationToken cancellationToken)
 	{
 		EnsureSuccess(await RunAsync(["add", "-A"], cancellationToken), "add -A");
 		if (!await HasStagedChangesAsync(cancellationToken))
 			return false;
 
-		EnsureSuccess(await RunAsync(["commit", "-m", message], cancellationToken), $"commit -m {message}");
+		var arguments = new List<string> { "commit", "-m", message };
+		if (gitNoVerify)
+			arguments.Add("--no-verify");
+
+		EnsureSuccess(await RunAsync(arguments, cancellationToken), $"{string.Join(' ', arguments)}");
 		return true;
 	}
 
@@ -120,11 +124,14 @@ internal sealed class GitClient
 		EnsureSuccess(await RunAsync(["switch", "-c", branchName, "--track", $"origin/{branchName}"], cancellationToken), $"switch -c {branchName} --track origin/{branchName}");
 	}
 
-	public async Task PushBranchAsync(string branchName, bool force, CancellationToken cancellationToken)
+	public async Task PushBranchAsync(string branchName, bool force, bool gitNoVerify, CancellationToken cancellationToken)
 	{
-		var arguments = force
-			? new[] { "push", "--force-with-lease", "-u", "origin", branchName }
-			: ["push", "-u", "origin", branchName];
+		var arguments = new List<string> { "push" };
+		if (force)
+			arguments.Add("--force-with-lease");
+		if (gitNoVerify)
+			arguments.Add("--no-verify");
+		arguments.AddRange(["-u", "origin", branchName]);
 		EnsureSuccess(await RunAsync(arguments, cancellationToken), string.Join(' ', arguments));
 	}
 

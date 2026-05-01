@@ -150,6 +150,7 @@ Apply conventions:
 
 ```pwsh
 repo-conventions apply
+repo-conventions apply --git-no-verify
 repo-conventions apply --repo ../target-repo --config .config/repo-conventions.yml --temp .artifacts/repo-conventions-temp
 ```
 
@@ -157,10 +158,12 @@ Apply conventions and open a PR:
 
 ```pwsh
 repo-conventions apply --open-pr
+repo-conventions apply --open-pr --git-no-verify
 repo-conventions apply --open-pr --draft
 repo-conventions apply --open-pr --no-draft
 repo-conventions apply --open-pr --auto-merge --merge-method squash
 repo-conventions apply --open-pr --repo ../target-repo --config .config/repo-conventions.yml
+repo-conventions add ./conventions/local-policy --open-pr --git-no-verify
 ```
 
 ## Operational Requirements

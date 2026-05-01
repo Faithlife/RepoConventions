@@ -37,7 +37,7 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, bool openPullRequest, CancellationToken cancellationToken)
+	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, bool openPullRequest, bool gitNoVerify, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -67,10 +67,10 @@ internal sealed class ConventionRunner
 				return 0;
 
 			if (addedConventionPaths.Count != 0)
-				await m_settings.TargetGitClient.CommitAllAsync(BuildAddConventionsCommitMessage(addedConventionPaths), cancellationToken);
+				await m_settings.TargetGitClient.CommitAllAsync(BuildAddConventionsCommitMessage(addedConventionPaths), gitNoVerify, cancellationToken);
 
 			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
-			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, new ApplyCommandSettings(OpenPullRequest: true, Draft: null, AutoMerge: null, MergeMethod: null), pullRequest, cancellationToken);
+			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, new ApplyCommandSettings(OpenPullRequest: true, Draft: null, AutoMerge: null, MergeMethod: null, GitNoVerify: gitNoVerify), pullRequest, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{
@@ -93,7 +93,7 @@ internal sealed class ConventionRunner
 		await m_settings.StandardOutput.WriteLineAsync($"Applying {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} conventions...");
 
 		var appliedConventions = new List<AppliedConvention>();
-		var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, cancellationToken);
+		var success = await ApplyConventionPlanAsync(plannedConventions, appliedConventions, applySettings, cancellationToken);
 		if (!success)
 			return 1;
 
@@ -207,18 +207,18 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	private async Task<bool> ApplyConventionPlanAsync(IReadOnlyList<PlannedConvention> plannedConventions, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> ApplyConventionPlanAsync(IReadOnlyList<PlannedConvention> plannedConventions, List<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
 		foreach (var plannedConvention in plannedConventions)
 		{
-			if (!await ApplyPlannedConventionAsync(plannedConvention, appliedConventions, cancellationToken))
+			if (!await ApplyPlannedConventionAsync(plannedConvention, appliedConventions, applySettings, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, List<AppliedConvention> appliedConventions, CancellationToken cancellationToken)
+	private async Task<bool> ApplyPlannedConventionAsync(PlannedConvention plannedConvention, List<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
 		var startMessage = $"Convention {FormatApplyingConventionName(plannedConvention)}";
 		var openedGitHubActionsGroup = m_settings.UseGitHubActionsGroupMarkers;
@@ -240,7 +240,7 @@ internal sealed class ConventionRunner
 			var conventionScriptPath = Path.Combine(plannedConvention.ResolvedConvention.DirectoryPath, "convention.ps1");
 			if (File.Exists(conventionScriptPath))
 			{
-				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, plannedConvention.Settings, plannedConvention.ResolvedConvention.DisplayName, cancellationToken);
+				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, plannedConvention.Settings, plannedConvention.ResolvedConvention.DisplayName, applySettings, cancellationToken);
 				if (!scriptResult.Succeeded)
 					return false;
 			}
@@ -279,7 +279,7 @@ internal sealed class ConventionRunner
 		return true;
 	}
 
-	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, CancellationToken cancellationToken)
+	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
 		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		string inputPath;
@@ -333,7 +333,7 @@ internal sealed class ConventionRunner
 
 			if (await m_settings.TargetGitClient.HasChangesAsync(cancellationToken))
 			{
-				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}", cancellationToken);
+				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}", applySettings.GitNoVerify, cancellationToken);
 			}
 
 			return ConventionExecutionResult.Success();
@@ -517,7 +517,7 @@ internal sealed class ConventionRunner
 		var body = BuildPullRequestBody(appliedConventions, targetRepositoryUrl, pullRequest.BranchName, GetTargetRepositoryRelativePathOrNull(topLevelConfigPath));
 		var behavior = BuildPullRequestBehavior(repositoryPullRequestSettings, appliedConventions, applySettings);
 		if (pullRequest.HasOpenPullRequest)
-			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, createdCommitCount, body, behavior, repositoryInfo, cancellationToken);
+			return await CompleteExistingPullRequestAsync(pullRequest, pullRequestCommitCount, createdCommitCount, body, behavior, repositoryInfo, applySettings, cancellationToken);
 
 		if (pullRequestCommitCount == 0)
 		{
@@ -529,7 +529,7 @@ internal sealed class ConventionRunner
 			return 1;
 
 		await m_settings.StandardOutput.WriteLineAsync($"Pushing branch {pullRequest.BranchName}...");
-		await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, force: false, cancellationToken);
+		await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, force: false, applySettings.GitNoVerify, cancellationToken);
 		if (pullRequest.HasOpenPullRequest)
 			return 0;
 
@@ -555,7 +555,7 @@ internal sealed class ConventionRunner
 		return autoMergeOutcome.ExitCode;
 	}
 
-	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, int createdCommitCount, string pullRequestBody, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
+	private async Task<int> CompleteExistingPullRequestAsync(PullRequestPreparation pullRequest, int pullRequestCommitCount, int createdCommitCount, string pullRequestBody, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
 		if (pullRequest.PullRequestUrl is null)
 			throw new InvalidOperationException("Existing pull request URL was not provided.");
@@ -583,7 +583,7 @@ internal sealed class ConventionRunner
 			return 1;
 
 		if (commitsChanged)
-			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, cancellationToken);
+			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, applySettings.GitNoVerify, cancellationToken);
 
 		if (shouldCommentAdditionalConventionCommits)
 		{

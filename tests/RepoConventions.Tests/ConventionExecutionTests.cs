@@ -169,6 +169,35 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
+	[TestCase(false)]
+	[TestCase(true)]
+	public async Task CommitModeGitNoVerifyControlsPreCommitHookBypass(bool gitNoVerify)
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		repo.InstallFailingHook("pre-commit");
+
+		var arguments = gitNoVerify ? new[] { "apply", "--git-no-verify" } : ["apply"];
+		var result = await CliInvocation.InvokeAsync(arguments, repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.EqualTo(gitNoVerify ? 0 : 1));
+			Assert.That(result.StandardError, gitNoVerify ? Is.Empty : Does.Contain("git commit -m Apply convention add-file failed:"));
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo(gitNoVerify ? "Apply convention add-file" : "Initial commit."));
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(await repo.GetWorkingTreeStatusAsync(), Is.EqualTo(gitNoVerify ? "" : "A  created.txt"));
+		}
+	}
+
 	[Test]
 	public async Task CommitModeReportsTotalCommitsCreatedByConventionScript()
 	{

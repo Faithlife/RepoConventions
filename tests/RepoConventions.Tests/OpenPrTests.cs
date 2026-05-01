@@ -89,6 +89,37 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeGitNoVerifyBypassesFailingPrePushHook()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		repo.InstallFailingHook("pre-push");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--git-no-verify"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Pushing branch repo-conventions..."));
+			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.EqualTo(1));
+		}
+	}
+
+	[Test]
 	public async Task AddOpenPrModeFailsWhenRepositoryIsDirty()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -188,6 +219,36 @@ internal sealed class OpenPrTests
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.EqualTo(1));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[Conventions](https://github.com/example/repo/blob/repo-conventions/.github/conventions.yml)"));
 			Assert.That(fakeGh.LastInvocation("pr", "create").Last(), Does.Contain("[add-file](https://github.com/example/repo/tree/repo-conventions/.github/conventions/add-file)"));
+		}
+	}
+
+	[Test]
+	public async Task AddOpenPrModeGitNoVerifyBypassesFailingHooks()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		repo.InstallFailingHook("pre-commit");
+		repo.InstallFailingHook("pre-push");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--open-pr", "--git-no-verify"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var recentCommitMessages = await repo.GetRecentCommitMessagesAsync(3);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.True);
+			Assert.That(recentCommitMessages, Does.Contain("Apply convention add-file"));
+			Assert.That(recentCommitMessages, Does.Contain("Add convention ./conventions/add-file"));
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.EqualTo(1));
 		}
 	}
 

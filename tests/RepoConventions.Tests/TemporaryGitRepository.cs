@@ -51,12 +51,31 @@ internal sealed class TemporaryGitRepository : IDisposable
 		File.WriteAllText(fullPath, contents);
 	}
 
+	public async Task SetGitConfigAsync(string name, string value)
+	{
+		VerifyNotBare();
+		await RunGitAsync(RootPath, ["config", name, value]);
+	}
+
 	public void WriteFile(string relativePath, byte[] contents)
 	{
 		VerifyNotBare();
 		var fullPath = Path.Combine(RootPath, relativePath);
 		Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 		File.WriteAllBytes(fullPath, contents);
+	}
+
+	public void InstallFailingHook(string hookName)
+	{
+		VerifyNotBare();
+		var hooksDirectory = Path.Combine(RootPath, ".git", "hooks");
+		var samplePath = Path.Combine(hooksDirectory, hookName + ".sample");
+		var hookPath = Path.Combine(hooksDirectory, hookName);
+		if (!File.Exists(samplePath))
+			throw new AssertionException($"Expected hook sample '{samplePath}' was not found.");
+
+		File.Copy(samplePath, hookPath, overwrite: true);
+		File.WriteAllText(hookPath, "#!/usr/bin/env pwsh\nexit 1\n");
 	}
 
 	public bool FileExists(string relativePath) => File.Exists(Path.Combine(RootPath, relativePath));

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Text;
 
 namespace RepoConventions;
 
@@ -54,7 +55,7 @@ internal static class RepoConventionsCli
 		};
 
 		var rootCommand = new RootCommand("Applies shared repository conventions.");
-		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, cancellationToken));
+		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, gitHubStepSummaryPath, cancellationToken));
 
 		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
 		var applyRepoOption = new Option<string>("--repo")
@@ -145,7 +146,7 @@ internal static class RepoConventionsCli
 		rootCommand.Subcommands.Add(addCommand);
 
 		var parseResult = rootCommand.Parse(args);
-		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, cancellationToken);
+		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, gitHubStepSummaryPath, cancellationToken);
 	}
 
 	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
@@ -274,13 +275,14 @@ internal static class RepoConventionsCli
 		}
 	}
 
-	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken) =>
-		InvokeParseResultAsync(rootCommand.Parse(["--help"]), standardOutput, standardError, cancellationToken);
+	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError, string? gitHubStepSummaryPath, CancellationToken cancellationToken) =>
+		InvokeParseResultAsync(rootCommand.Parse(["--help"]), standardOutput, standardError, gitHubStepSummaryPath, cancellationToken);
 
-	private static async Task<int> InvokeParseResultAsync(ParseResult parseResult, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+	private static async Task<int> InvokeParseResultAsync(ParseResult parseResult, TextWriter standardOutput, TextWriter standardError, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
 	{
 		var invocationConfiguration = new InvocationConfiguration
 		{
+			EnableDefaultExceptionHandler = false,
 			Output = standardOutput,
 			Error = standardError,
 		};
@@ -293,6 +295,10 @@ internal static class RepoConventionsCli
 		{
 			return await WriteCancellationMessageAsync(standardError);
 		}
+		catch (Exception ex)
+		{
+			return await WriteUnhandledExceptionMessageAsync(ex, standardError, gitHubStepSummaryPath);
+		}
 		finally
 		{
 			await standardOutput.FlushAsync(CancellationToken.None);
@@ -304,6 +310,25 @@ internal static class RepoConventionsCli
 	{
 		await standardError.WriteLineAsync(ShutdownRequestedMessage);
 		return CanceledExitCode;
+	}
+
+	private static async Task<int> WriteUnhandledExceptionMessageAsync(Exception exception, TextWriter standardError, string? gitHubStepSummaryPath)
+	{
+		var exceptionDetails = exception.ToString();
+		await standardError.WriteLineAsync("Unhandled exception: " + exceptionDetails);
+
+		if (!string.IsNullOrWhiteSpace(gitHubStepSummaryPath))
+		{
+			var stepSummary = new StringBuilder()
+				.AppendLine("Unhandled exception:")
+				.AppendLine("```text")
+				.AppendLine(exceptionDetails)
+				.AppendLine("```")
+				.ToString();
+			await File.AppendAllTextAsync(gitHubStepSummaryPath, stepSummary);
+		}
+
+		return 1;
 	}
 
 	private static bool IsRunningInGitHubActions() =>

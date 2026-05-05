@@ -120,10 +120,35 @@ internal static class RepoConventionsCli
 		{
 			Description = "Add conventions, apply conventions, create commits, and open or update a pull request.",
 		};
+		var addDraftOption = new Option<bool>("--draft")
+		{
+			Description = "Create the generated pull request as a draft.",
+		};
+		var addNoDraftOption = new Option<bool>("--no-draft")
+		{
+			Description = "Create the generated pull request as ready for review.",
+		};
+		var addAutoMergeOption = new Option<bool>("--auto-merge")
+		{
+			Description = "Enable auto-merge for the generated pull request.",
+		};
+		var addNoAutoMergeOption = new Option<bool>("--no-auto-merge")
+		{
+			Description = "Disable auto-merge for this run.",
+		};
+		var addMergeMethodOption = new Option<string>("--merge-method")
+		{
+			Description = "Preferred merge method for the generated pull request: merge, squash, or rebase.",
+		};
 		addCommand.Options.Add(addRepoOption);
 		addCommand.Options.Add(addConfigOption);
 		addCommand.Options.Add(addTempOption);
 		addCommand.Options.Add(addOpenPrOption);
+		addCommand.Options.Add(addDraftOption);
+		addCommand.Options.Add(addNoDraftOption);
+		addCommand.Options.Add(addAutoMergeOption);
+		addCommand.Options.Add(addNoAutoMergeOption);
+		addCommand.Options.Add(addMergeMethodOption);
 		addCommand.Options.Add(gitNoVerifyOption);
 		addCommand.Arguments.Add(conventionPathArgument);
 		addCommand.SetAction(parseResult =>
@@ -133,6 +158,11 @@ internal static class RepoConventionsCli
 				addConfigOption,
 				addTempOption,
 				addOpenPrOption,
+				addDraftOption,
+				addNoDraftOption,
+				addAutoMergeOption,
+				addNoAutoMergeOption,
+				addMergeMethodOption,
 				gitNoVerifyOption,
 				conventionPathArgument,
 				currentDirectory,
@@ -155,22 +185,9 @@ internal static class RepoConventionsCli
 		{
 			var paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
 
-			if (parseResult.GetValue(draftOption) && parseResult.GetValue(noDraftOption))
+			if (!TryGetApplyCommandSettings(parseResult, openPrOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var applySettings, out var errorMessage))
 			{
-				await standardError.WriteLineAsync("--draft and --no-draft cannot be used together.");
-				return 1;
-			}
-
-			if (parseResult.GetValue(autoMergeOption) && parseResult.GetValue(noAutoMergeOption))
-			{
-				await standardError.WriteLineAsync("--auto-merge and --no-auto-merge cannot be used together.");
-				return 1;
-			}
-
-			var mergeMethod = parseResult.GetValue(mergeMethodOption);
-			if (mergeMethod is not null && mergeMethod is not ("merge" or "squash" or "rebase"))
-			{
-				await standardError.WriteLineAsync("--merge-method must be one of: merge, squash, rebase.");
+				await standardError.WriteLineAsync(errorMessage);
 				return 1;
 			}
 
@@ -205,17 +222,7 @@ internal static class RepoConventionsCli
 				RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 				ExternalCommandRunner = externalCommandRunner,
 			});
-			bool? draft = parseResult.GetValue(draftOption)
-				? true
-				: parseResult.GetValue(noDraftOption)
-					? false
-					: null;
-			bool? autoMerge = parseResult.GetValue(autoMergeOption)
-				? true
-				: parseResult.GetValue(noAutoMergeOption)
-					? false
-					: null;
-			return await conventionRunner.RunAsync(paths.ConfigurationPath, new ApplyCommandSettings(parseResult.GetValue(openPrOption), draft, autoMerge, mergeMethod, parseResult.GetValue(gitNoVerifyOption)), cancellationToken);
+			return await conventionRunner.RunAsync(paths.ConfigurationPath, applySettings, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{
@@ -228,11 +235,17 @@ internal static class RepoConventionsCli
 		}
 	}
 
-	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> gitNoVerifyOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
 	{
 		try
 		{
 			var paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
+
+			if (!TryGetApplyCommandSettings(parseResult, openPrOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var applySettings, out var errorMessage))
+			{
+				await standardError.WriteLineAsync(errorMessage);
+				return 1;
+			}
 
 			if (!await GitRepositoryValidator.IsRepositoryRootAsync(paths.RepositoryRoot, cancellationToken))
 			{
@@ -240,8 +253,7 @@ internal static class RepoConventionsCli
 				return 1;
 			}
 
-			var openPullRequest = parseResult.GetValue(openPrOption);
-			if (openPullRequest && !await GitRepositoryValidator.IsCleanAsync(paths.RepositoryRoot, cancellationToken))
+			if (applySettings.OpenPullRequest && !await GitRepositoryValidator.IsCleanAsync(paths.RepositoryRoot, cancellationToken))
 			{
 				await standardError.WriteLineAsync("repo-conventions must be run from a clean repository.");
 				return 1;
@@ -262,7 +274,7 @@ internal static class RepoConventionsCli
 				ExternalCommandRunner = externalCommandRunner,
 			});
 
-			return await conventionRunner.AddAsync(paths.ConfigurationPath, paths.ConfigurationDisplayPath, conventionPaths, openPullRequest, parseResult.GetValue(gitNoVerifyOption), cancellationToken);
+			return await conventionRunner.AddAsync(paths.ConfigurationPath, paths.ConfigurationDisplayPath, conventionPaths, applySettings, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{
@@ -338,6 +350,46 @@ internal static class RepoConventionsCli
 	{
 		var path = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
 		return string.IsNullOrWhiteSpace(path) ? null : path;
+	}
+
+	private static bool TryGetApplyCommandSettings(ParseResult parseResult, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, out ApplyCommandSettings applySettings, out string? errorMessage)
+	{
+		if (parseResult.GetValue(draftOption) && parseResult.GetValue(noDraftOption))
+		{
+			applySettings = default!;
+			errorMessage = "--draft and --no-draft cannot be used together.";
+			return false;
+		}
+
+		if (parseResult.GetValue(autoMergeOption) && parseResult.GetValue(noAutoMergeOption))
+		{
+			applySettings = default!;
+			errorMessage = "--auto-merge and --no-auto-merge cannot be used together.";
+			return false;
+		}
+
+		var mergeMethod = parseResult.GetValue(mergeMethodOption);
+		if (mergeMethod is not null && mergeMethod is not ("merge" or "squash" or "rebase"))
+		{
+			applySettings = default!;
+			errorMessage = "--merge-method must be one of: merge, squash, rebase.";
+			return false;
+		}
+
+		bool? draft = parseResult.GetValue(draftOption)
+			? true
+			: parseResult.GetValue(noDraftOption)
+				? false
+				: null;
+		bool? autoMerge = parseResult.GetValue(autoMergeOption)
+			? true
+			: parseResult.GetValue(noAutoMergeOption)
+				? false
+				: null;
+
+		applySettings = new ApplyCommandSettings(parseResult.GetValue(openPrOption), draft, autoMerge, mergeMethod, parseResult.GetValue(gitNoVerifyOption));
+		errorMessage = null;
+		return true;
 	}
 
 	private static class GitRepositoryValidator

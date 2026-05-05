@@ -30,7 +30,7 @@ internal static class RepoConventionsCli
 		};
 		var noDraftOption = new Option<bool>("--no-draft")
 		{
-			Description = "Create the generated pull request as ready for review even if configuration enables draft mode.",
+			Description = "Create the generated pull request as ready for review.",
 		};
 		var autoMergeOption = new Option<bool>("--auto-merge")
 		{
@@ -38,7 +38,7 @@ internal static class RepoConventionsCli
 		};
 		var noAutoMergeOption = new Option<bool>("--no-auto-merge")
 		{
-			Description = "Disable auto-merge for this run even if configuration enables it.",
+			Description = "Disable auto-merge for this run.",
 		};
 		var mergeMethodOption = new Option<string>("--merge-method")
 		{
@@ -46,7 +46,7 @@ internal static class RepoConventionsCli
 		};
 		var gitNoVerifyOption = new Option<bool>("--git-no-verify")
 		{
-			Description = "Pass --no-verify to git commit and git push for repo-conventions-managed git operations.",
+			Description = "Pass --no-verify to git commit and git push.",
 		};
 		var conventionPathArgument = new Argument<string[]>("path")
 		{

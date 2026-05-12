@@ -174,6 +174,7 @@ Authoring expectations:
 - If the script creates commits itself, RepoConventions preserves those commits.
 - If the script exits with a non-zero code, RepoConventions hard-resets the target repository to the commit before that convention started and stops the run.
 - RepoConventions builds the convention plan before applying any convention, so path and settings-expression errors prevent partial application.
+- When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
 
 ## Documentation
 
@@ -192,7 +193,7 @@ Keep repository-level consumer docs focused on using RepoConventions. Put author
 
 - Test the convention with Pester if possible.
 - Put Pester tests in the same directory as the convention they cover, e.g. `conventions/my-convention/convention.Tests.ps1`.
-- Prefer clean temporary repositories so tests exercise real files, git state, and command behavior.
+- Prefer new temporary repositories with no preexisting tracked or untracked file changes so tests exercise real files, git state, and command behavior.
 - Test both an already-compliant repository and a non-compliant repository.
 - Re-run after the first successful application to confirm idempotency.
 - If the convention has settings, exercise at least one non-default settings case.

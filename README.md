@@ -58,7 +58,7 @@ Complete example:
 
 ```yaml
 conventions:
-  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk@v1
+  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk
     settings:
       version: 10
   - path: ./conventions/local-policy
@@ -82,7 +82,7 @@ pull-request:
 
 Each item in `conventions` must contain a non-empty `path`. It may also contain `settings` and `pull-request`.
 
-`path` identifies a convention directory. That directory must contain `convention.yml`, `convention.ps1`, or both. If both files exist, RepoConventions applies child conventions from `convention.yml` before running `convention.ps1`.
+`path` identifies a convention directory. Each convention should document its own settings, behavior, and required tools.
 
 Supported path forms:
 
@@ -173,7 +173,7 @@ repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
 repo-conventions add ./conventions/local-policy --repo ../target-repo --config .config/repo-conventions.yml
 ```
 
-`add` requires the target path to be a Git repository root, but it does not require a clean working tree unless `--open-pr` is used.
+`add` requires the target repository path to be a Git repository root. Unless `--open-pr` is used, it can run when the target repository has tracked or untracked file changes.
 
 With `--open-pr`, `add` commits any newly added convention references, applies the resulting configuration, commits convention changes, and opens or updates a pull request:
 
@@ -193,7 +193,7 @@ repo-conventions apply --git-no-verify
 repo-conventions apply --repo ../target-repo --config .config/repo-conventions.yml --temp .artifacts/repo-conventions-temp
 ```
 
-`apply` requires the target repository to be clean before it starts. If a convention script fails, RepoConventions resets the target repository back to the commit before that convention started and stops the run.
+`apply` requires no tracked or untracked file changes in the target repository before it starts. More precisely, `git status --porcelain --untracked-files=normal` must produce no output. Ignored files do not matter.
 
 With `--open-pr`, `apply` pushes convention commits and opens or updates a GitHub pull request:
 
@@ -207,21 +207,17 @@ repo-conventions apply --open-pr --no-auto-merge
 
 `--open-pr` requires:
 
-- a clean target repository
+- no tracked or untracked file changes in the target repository, as reported by `git status --porcelain --untracked-files=normal`
 - a non-detached starting branch
 - no unpushed commits on the starting branch
 - the GitHub CLI `gh` installed and authenticated
 
 When opening a pull request, RepoConventions creates `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
 
-## Commits and Convention Execution
+## Commit Behavior
 
-Convention scripts run with `pwsh -NoProfile` from the target repository root. Each script receives one argument: the path to a JSON file with a single `settings` property.
-
-When a script exits successfully, RepoConventions commits any tracked or untracked changes left by the script using `Apply convention <name>`. If the script creates its own commits, those commits are preserved. If no changes or commits are created, no commit is added for that convention.
-
-When running in GitHub Actions, command output is grouped per convention and the final summary line is also appended to `GITHUB_STEP_SUMMARY` when that environment variable is available.
+When a convention changes files, RepoConventions commits those changes. A convention can also create its own commits. If a convention makes no changes, no commit is added for that convention.
 
 ## Writing Conventions
 
-Conventions consumed by this tool are directories containing `convention.yml`, `convention.ps1`, or both. For the authoring contract, examples, idempotency expectations, and agent-friendly workflow, see [skills/create-repo-conventions/SKILL.md](skills/create-repo-conventions/SKILL.md).
+For the convention authoring contract, examples, idempotency expectations, script execution details, and agent-friendly workflow, see [skills/create-repo-conventions/SKILL.md](skills/create-repo-conventions/SKILL.md).

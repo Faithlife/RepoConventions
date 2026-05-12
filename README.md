@@ -1,10 +1,8 @@
 # RepoConventions
 
-Applies shared repository conventions.
-
 [![Build](https://github.com/Faithlife/RepoConventions/workflows/Build/badge.svg)](https://github.com/Faithlife/RepoConventions/actions?query=workflow%3ABuild) [![NuGet](https://img.shields.io/nuget/v/repo-conventions.svg)](https://www.nuget.org/packages/repo-conventions)
 
-RepoConventions is a .NET tool that reads a YAML configuration file, resolves one or more convention directories, runs their convention scripts, commits any resulting changes, and can optionally open or update a GitHub pull request.
+RepoConventions is a .NET tool that runs convention scripts configured for a repository, committing any resulting changes and optionally opening a GitHub pull request.
 
 ## Quick Start
 
@@ -17,10 +15,10 @@ dotnet tool install --global repo-conventions
 Or run it ad hoc with `dnx`:
 
 ```pwsh
-dnx --yes repo-conventions apply
+dnx repo-conventions
 ```
 
-Add a convention to the repository you want to manage:
+To add a convention to the current repository:
 
 ```pwsh
 repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf
@@ -102,7 +100,6 @@ conventions:
   - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk
     settings:
       version: 10
-      warningsAsErrors: true
 ```
 
 ### Pull Request Settings
@@ -165,12 +162,12 @@ Common pull request options:
 
 ### `add`
 
-`repo-conventions add` appends one or more convention paths to the configuration file. If the file is missing, it creates it. If a path is already present, it leaves the file unchanged for that path.
+`repo-conventions add` appends one or more convention paths to the configuration file. If the file is missing, it creates it. If a path is already present, it leaves the file unchanged for that path. If settings are required, they must be added by hand to the configuration file.
 
 Examples:
 
 ```pwsh
-repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk@v1
+repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
 repo-conventions add ./conventions/local-policy
 repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
 repo-conventions add ./conventions/local-policy --repo ../target-repo --config .config/repo-conventions.yml

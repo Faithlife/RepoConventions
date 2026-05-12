@@ -4,34 +4,42 @@ Applies shared repository conventions.
 
 [![Build](https://github.com/Faithlife/RepoConventions/workflows/Build/badge.svg)](https://github.com/Faithlife/RepoConventions/actions?query=workflow%3ABuild) [![NuGet](https://img.shields.io/nuget/v/repo-conventions.svg)](https://www.nuget.org/packages/repo-conventions)
 
-RepoConventions applies shared repository conventions from a `.github/conventions.yml` file.
-
 ## Quick Start
 
-Install the tool globally, or run it ad hoc with `dnx`.
+Install the `repo-conventions` tool globally:
 
 ```pwsh
 dotnet tool install --global repo-conventions
-# or
-dnx repo-conventions --help
 ```
 
-Create `.github/conventions.yml` in the repository you want to manage.
-
-For example, to add a convention that installs a workflow that opens a PR nightly when convention changes are needed:
+Or run it ad hoc with `dnx`, e.g.
 
 ```pwsh
-repo-conventions add Faithlife/CodingGuidelines/conventions/repo-conventions-workflow
+dnx --yes repo-conventions apply
 ```
 
-This is the `.github/conventions.yml` that should have been created:
+Create `.github/conventions.yml` in the repository you want to manage. Use `repo-conventions add` to quickly create the file with the specified convention.
+
+For example, to add a convention that uses `.gitattributes` to enforce LF linefeeds:
+
+```pwsh
+repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf
+```
+
+This is the `.github/conventions.yml` that will have been created:
 
 ```yaml
 conventions:
-  - path: Faithlife/CodingGuidelines/conventions/repo-conventions-workflow
+  - path: Faithlife/CodingGuidelines/conventions/gitattributes-lf
 ```
 
-Commit `.github/conventions.yml`, then run `repo-conventions apply` from the repository root, which creates and commits the workflow. Use `repo-conventions add <path> --open-pr` to add the reference, apply it, and open a PR in one run.
+Commit `.github/conventions.yml`, then run `repo-conventions apply` from the repository root to apply the convention.
+
+Alternatively, use `--open-pr` to add the reference, apply it, and open a PR in one run:
+
+```pwsh
+repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --open-pr
+```
 
 ## Configuration
 
@@ -43,24 +51,11 @@ RepoConventions reads `.github/conventions.yml`.
 
 Regarding convention paths:
 
-- Remote paths use `owner/repo/path@ref`. If `path` is omitted, the repository root is used. If `@ref` is omitted, the remote default branch is used.
+- Remote paths use `owner/repo/path@ref`. If `path` is omitted, the repository root is used. If `@ref` is omitted, the default branch is used.
 - Local relative paths start with `./` or `../` and are resolved relative to the configuration file, or start with `/` and are resolved from the repository root.
-
-## CLI
-
-`repo-conventions add <path> [<path> ...]` adds convention references to `.github/conventions.yml`, creating the file if needed.
-
-`repo-conventions add <path> --open-pr` adds convention references, commits them, applies conventions, and opens or updates a PR for the created commits.
-
-`repo-conventions apply` applies configured conventions and creates commits as needed.
-
-`repo-conventions apply --open-pr` applies conventions, creates commits, and opens or updates a PR for any created commits.
-
-`--git-no-verify` is an optional flag for commands that trigger repo-conventions-managed `git commit` or `git push` invocations, passing `--no-verify` through to those operations.
-
-When applying conventions, run from the repository root, and start with a clean working tree. With `--open-pr`, there should also be no unpushed local commits.
+- Conventions usually have a README that documents what they do and any settings they may support.
 
 ## More Documentation
 
-- [Detailed configuration](docs/configuration.md)
-- [Authoring conventions](docs/authoring-conventions.md)
+- [Configuration Reference](docs/configuration.md)
+- [Authoring Conventions](docs/authoring-conventions.md)

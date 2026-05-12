@@ -6,12 +6,12 @@ This document covers how to create and maintain convention directories that are 
 
 A convention directory may contain either of these files, or both:
 
-- `convention.yml` for composition
+- `convention.yml` for convention composition and pull request settings
 - `convention.ps1` for executable behavior
 
-If both files are present, RepoConventions applies `convention.yml` first and then runs `convention.ps1`.
+If both files are present, RepoConventions applies any conventions in `convention.yml` first and then runs `convention.ps1`.
 
-Convention directories can also include supporting files such as `README.md`, templates, or text files consumed by settings expressions.
+Convention directories should include a `README.md` for documention. They can also include supporting files, read by the convention script or settings expressions.
 
 ## Composite Conventions
 
@@ -74,13 +74,11 @@ settings:
 ```yaml
 settings:
   body: ${{ readText("./body.txt") }}
-  message: prefix-${{ readText("/docs/name.txt") }}-suffix
 ```
 
 - Reads UTF-8 text from a file.
 - Relative paths resolve from the YAML file that contains the expression.
 - Paths beginning with `/` resolve from the root of the repository that contains the YAML file.
-- Native absolute filesystem paths are not allowed.
 - Paths must stay within the repository that contains the YAML file.
 
 ## Executable Conventions

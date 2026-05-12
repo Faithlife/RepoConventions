@@ -859,7 +859,7 @@ internal sealed class OpenPrTests
 
 		try
 		{
-			var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--repo", repo.RootPath, "--config", ".config/repo-conventions.yml"], launchDirectory, externalCommandRunner: fakeGh.Runner);
+			var result = await CliInvocation.InvokeAsync(["apply", "--open-pr", "--repo", repo.RootPath, "--config", Path.Combine(repo.RootPath, ".config", "repo-conventions.yml")], launchDirectory, externalCommandRunner: fakeGh.Runner);
 			var body = fakeGh.LastInvocation("pr", "create").Last();
 
 			using (Assert.EnterMultipleScope())

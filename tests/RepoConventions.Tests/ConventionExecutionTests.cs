@@ -496,7 +496,7 @@ internal sealed class ConventionExecutionTests
 		}
 		finally
 		{
-			Directory.Delete(launchDirectory, recursive: true);
+			DeleteDirectoryWithRetries(launchDirectory);
 		}
 	}
 
@@ -525,10 +525,46 @@ internal sealed class ConventionExecutionTests
 	}
 
 	[Test]
-	public async Task CommitModeUsesConfiguredTempRootForRemoteCloneAndScriptInputFile()
+	public async Task CommitModeResolvesCustomConfigPathFromCurrentDirectory()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var launchDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(launchDirectory);
+		Directory.CreateDirectory(Path.Combine(launchDirectory, ".config"));
+		await File.WriteAllTextAsync(Path.Combine(launchDirectory, ".config", "repo-conventions.yml"), """
+			conventions:
+			- path: /conventions/add-file
+			""");
+		repo.WriteFile("conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'custom-config-from-cwd.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		try
+		{
+			var result = await CliInvocation.InvokeAsync(["apply", "--repo", repo.RootPath, "--config", ".config/repo-conventions.yml"], launchDirectory);
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(repo.FileExists("custom-config-from-cwd.txt"), Is.True);
+				Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
+			}
+		}
+		finally
+		{
+			DeleteDirectoryWithRetries(launchDirectory);
+		}
+	}
+
+	[Test]
+	public async Task CommitModeUsesConfiguredTempRootFromCurrentDirectoryForRemoteCloneAndScriptInputFile()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		var launchDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(launchDirectory);
 		remoteRepo.WriteFile("conventions/add-file/convention.ps1", """
 			param([string] $configPath)
 			Set-Content -Path (Join-Path $PWD 'temp-input-path.txt') -Value $configPath
@@ -542,22 +578,29 @@ internal sealed class ConventionExecutionTests
 			""");
 		await repo.CommitAllAsync("Initial commit.");
 
-		var tempRoot = Path.Combine(repo.RootPath, ".artifacts", "repo-conventions-temp");
-		var result = await CliInvocation.InvokeAsync(
-			["apply", "--temp", ".artifacts/repo-conventions-temp"],
-			repo.RootPath,
-			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
-
-		using (Assert.EnterMultipleScope())
+		try
 		{
-			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(repo.FileExists("created.txt"), Is.True);
-			Assert.That(repo.FileExists("temp-input-path.txt"), Is.True);
-			var normalizedInputPath = (await repo.ReadFileAsync("temp-input-path.txt")).Trim().Replace('\\', '/');
-			var normalizedTempRoot = tempRoot.Replace('\\', '/');
-			Assert.That(normalizedInputPath, Does.StartWith(normalizedTempRoot + "/"));
-			Assert.That(Directory.Exists(tempRoot), Is.True);
-			Assert.That(Directory.EnumerateDirectories(tempRoot).Any(), Is.True);
+			var tempRoot = Path.Combine(launchDirectory, ".artifacts", "repo-conventions-temp");
+			var result = await CliInvocation.InvokeAsync(
+				["apply", "--repo", repo.RootPath, "--temp", ".artifacts/repo-conventions-temp"],
+				launchDirectory,
+				LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(repo.FileExists("created.txt"), Is.True);
+				Assert.That(repo.FileExists("temp-input-path.txt"), Is.True);
+				var normalizedInputPath = (await repo.ReadFileAsync("temp-input-path.txt")).Trim().Replace('\\', '/');
+				var normalizedTempRoot = tempRoot.Replace('\\', '/');
+				Assert.That(normalizedInputPath, Does.StartWith(normalizedTempRoot + "/"));
+				Assert.That(Directory.Exists(tempRoot), Is.True);
+				Assert.That(Directory.EnumerateDirectories(tempRoot).Any(), Is.True);
+			}
+		}
+		finally
+		{
+			DeleteDirectoryWithRetries(launchDirectory);
 		}
 	}
 
@@ -1569,6 +1612,42 @@ internal sealed class ConventionExecutionTests
 			await Task.Delay(50);
 
 		Assert.That(repo.FileExists(relativePath), Is.True, $"{relativePath} was not created.");
+	}
+
+	private static void DeleteDirectoryWithRetries(string directoryPath)
+	{
+		if (!Directory.Exists(directoryPath))
+			return;
+
+		ClearAttributes(directoryPath);
+
+		for (var attempt = 0; attempt < 10; attempt++)
+		{
+			try
+			{
+				Directory.Delete(directoryPath, recursive: true);
+				return;
+			}
+			catch (IOException) when (attempt < 9)
+			{
+				Thread.Sleep(100);
+			}
+			catch (UnauthorizedAccessException) when (attempt < 9)
+			{
+				Thread.Sleep(100);
+			}
+		}
+	}
+
+	private static void ClearAttributes(string rootPath)
+	{
+		foreach (var directoryPath in Directory.EnumerateDirectories(rootPath, "*", SearchOption.AllDirectories))
+			File.SetAttributes(directoryPath, FileAttributes.Normal);
+
+		foreach (var filePath in Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories))
+			File.SetAttributes(filePath, FileAttributes.Normal);
+
+		File.SetAttributes(rootPath, FileAttributes.Normal);
 	}
 
 	private static string NormalizeConventionOutput(string output)

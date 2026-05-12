@@ -136,7 +136,7 @@ This keeps path-policy decisions out of `ConventionRunner` and avoids sprinkling
 ## Documentation Changes
 
 - Update `README.md` CLI examples to show the new options.
-- Update `docs/configuration.md` or command documentation to clarify that config location is now a CLI concern, not a YAML concern.
+- Update `README.md` or command documentation to clarify that config location is now a CLI concern, not a YAML concern.
 - Document the resolution rules for relative `--repo`, `--config`, and `--temp` values.
 
 ## Decisions

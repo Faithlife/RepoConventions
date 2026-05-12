@@ -121,7 +121,7 @@ Rationale:
 ## Documentation Changes
 
 - Update `README.md` to mention `draft` in the list of supported PR settings.
-- Update `docs/configuration.md` to document `pull-request.draft` at both repository and convention scope.
+- Update `README.md` to document `pull-request.draft` at both repository and convention scope.
 - Optionally cross-link from `plans/convention-pull-requests.md` if we want the broader PR behavior plan to reference this narrower follow-up.
 
 ## Open Questions

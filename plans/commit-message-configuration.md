@@ -2,7 +2,7 @@
 
 ## Goal
 
-Allow a convention to provide the commit message RepoConventions uses when the convention script leaves uncommitted changes behind. The message can be configured in the convention's own `convention.yml` or on a reference to another convention. A reference-level message overrides the convention definition message. No CLI options should be added.
+Allow a convention to provide the commit message RepoConventions uses when the convention script leaves uncommitted changes behind. The message can be configured in the convention's own `convention.yml` or on a reference to another convention. A reference-level message overrides the convention definition message.
 
 ## Configuration Shape
 
@@ -35,10 +35,9 @@ Do not add a top-level repository `commit` setting. This is per convention, unli
 - Add a `CommitSettings` record with `string? Message`.
 - Add `CommitSettings? Commit` to `ConventionFileConfiguration` and `ConventionReference`.
 - Extend `ConventionConfiguration` so both `ConfigurationFile` and `ConventionRecord` deserialize an optional `commit` object, with a nested `CommitRecord` containing `[JsonPropertyName("message")] string? Message`.
-- Validate `commit.message` when converting records:
-  - `null` or absent means unspecified.
-  - non-empty strings are accepted.
-  - empty or whitespace-only strings should fail with a friendly `ProgramException` naming `commit.message` and the configuration file.
+- Normalize `commit.message` when converting records:
+  - `null`, empty, or whitespace-only strings mean unspecified.
+  - non-empty strings are accepted and preserved.
 - Add a `MergeCommitSettings` helper near `MergePullRequestSettings`; reference settings override definition settings, with no list-merging behavior.
 - Add `CommitSettings? Commit` to `PlannedConvention`.
 - During planning, load `conventionConfiguration.Commit` from the convention's own `convention.yml`, merge it with `reference.Commit`, and store the effective settings on the planned executable convention.
@@ -51,14 +50,13 @@ Do not add a top-level repository `commit` setting. This is per convention, unli
 - Add an execution test covering `commit.message` in the convention's own `convention.yml`.
 - Add an execution test proving reference-level `commit.message` overrides the convention definition message.
 - Add a regression test proving the default message remains `Apply convention {displayName}` when no commit message is configured.
-- Add validation coverage for empty or whitespace-only `commit.message`.
+- Add coverage proving empty or whitespace-only `commit.message` values are treated as unspecified and fall back to the default message.
 - Add or update README assertions indirectly through tests only if this repo already tests README examples; otherwise update docs manually.
 
 ## Documentation
 
 - Update `README.md` configuration examples to show `commit.message` at the reference level.
 - Add a short `Commit Settings` section near `Pull Request Settings` explaining that `commit.message` can appear in a convention's `convention.yml` or on a reference, and that reference-level settings override convention defaults.
-- Mention explicitly in the CLI reference that there are no commit-message CLI flags.
 
 ## Verification
 

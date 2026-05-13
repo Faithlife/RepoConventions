@@ -1331,6 +1331,126 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeDoesNotEnableAutoMergeWhenAmendingExistingPullRequest()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: BuildSingleConventionPullRequestBody("repo-conventions", "existing-convention", ".github/conventions/existing-convention"));
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  auto-merge: true
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewBranchAsync("repo-conventions");
+		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
+		await repo.SwitchToBranchAsync("main");
+		await repo.DeleteBranchAsync("repo-conventions");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Updated pull request: https://github.com/example/repo/pull/1"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("auto-merge"));
+			Assert.That(fakeGh.CountCalls("pr", "merge"), Is.Zero);
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeDisablesAutoMergeWhenAmendingExistingPullRequestAndComputedBehaviorDisablesIt()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: BuildSingleConventionPullRequestBody("repo-conventions", "existing-convention", ".github/conventions/existing-convention"), autoMergeEnabled: true);
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  auto-merge: false
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewBranchAsync("repo-conventions");
+		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
+		await repo.SwitchToBranchAsync("main");
+		await repo.DeleteBranchAsync("repo-conventions");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var mergeInvocation = fakeGh.LastInvocation("pr", "merge");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Updated pull request: https://github.com/example/repo/pull/1 (auto-merge disabled)"));
+			Assert.That(fakeGh.CountCalls("pr", "merge"), Is.EqualTo(1));
+			Assert.That(mergeInvocation, Does.Contain("--disable-auto"));
+			Assert.That(mergeInvocation, Does.Not.Contain("--auto"));
+		}
+	}
+
+	[Test]
+	public async Task OpenPrModeEnablesAutoMergeWhenRebuildingExistingPullRequestFromBase()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: "Outdated pull request body");
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  auto-merge: true
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+		await repo.SwitchToNewBranchAsync("repo-conventions");
+		repo.WriteFile("created.txt", "created");
+		await repo.CommitAllAsync("Apply convention add-file");
+		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
+		await repo.SwitchToBranchAsync("main");
+		repo.WriteFile("base.txt", "latest-base");
+		await repo.CommitAllAsync("Advance base branch.");
+		await repo.PushAsync("origin", "main");
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var mergeInvocation = fakeGh.LastInvocation("pr", "merge");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Updated pull request: https://github.com/example/repo/pull/1 (auto-merge, squash)"));
+			Assert.That(fakeGh.CountCalls("pr", "merge"), Is.EqualTo(1));
+			Assert.That(mergeInvocation, Does.Contain("--auto"));
+			Assert.That(mergeInvocation, Does.Contain("--squash"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeFetchesExistingPullRequestBranchWhenRemoteTrackingRefIsMissing()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -1452,7 +1572,8 @@ internal sealed class OpenPrTests
 
 		public string[] LastInvocation(string command, string subcommand) => Invocations.Last(x => x.Length >= 2 && x[0] == command && x[1] == subcommand);
 
-		public void AddOpenPullRequest(string url, string headRefName, string baseRefName, string body = "") => OpenPullRequests.Add(new OpenPullRequest(url, headRefName, baseRefName, body));
+		public void AddOpenPullRequest(string url, string headRefName, string baseRefName, string body = "", bool autoMergeEnabled = false) =>
+			OpenPullRequests.Add(new OpenPullRequest(url, headRefName, baseRefName, body, autoMergeEnabled ? new AutoMergeRequestRecord("SQUASH") : null));
 
 		public void AddExistingLabel(string name) => Labels.Add(name);
 
@@ -1504,7 +1625,9 @@ internal sealed class OpenPrTests
 
 		private sealed record LabelRecord(string Name);
 
-		private sealed record OpenPullRequest(string Url, string HeadRefName, string BaseRefName, string Body);
+		private sealed record OpenPullRequest(string Url, string HeadRefName, string BaseRefName, string Body, AutoMergeRequestRecord? AutoMergeRequest);
+
+		private sealed record AutoMergeRequestRecord(string MergeMethod);
 
 		private sealed record RepoViewRecord(string Url, bool AutoMergeAllowed, bool MergeCommitAllowed, bool RebaseMergeAllowed, bool SquashMergeAllowed);
 

@@ -9,7 +9,7 @@ RepoConventions is a .NET tool that runs convention scripts configured for a rep
 Install the tool globally:
 
 ```pwsh
-dotnet tool install --global repo-conventions
+dotnet tool install -g repo-conventions
 ```
 
 Or run it ad hoc with `dnx`:
@@ -45,14 +45,14 @@ repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --o
 
 ## Configuration
 
-RepoConventions reads `.github/conventions.yml` from the target repository root by default. Use `--config <path>` to use a different file. Relative config paths are resolved from the current process directory.
+RepoConventions reads `.github/conventions.yml` from the target repository root by default.
 
-A configuration file is a YAML mapping with these top-level properties:
+A configuration file is a YAML file with these top-level properties:
 
 | Property | Required | Description |
 | --- | --- | --- |
 | `conventions` | Yes | Sequence of convention references, applied in declaration order. |
-| `pull-request` | No | Default pull request metadata used only when running with `--open-pr`. |
+| `pull-request` | No | Pull request settings; used when running with `--open-pr`. |
 
 Complete example:
 
@@ -65,16 +65,13 @@ conventions:
     pull-request:
       labels:
         - dependencies
+      auto-merge: false
 
 pull-request:
   labels:
     - automation
   reviewers:
     - octocat
-  assignees:
-    - octocat
-  draft: true
-  auto-merge: false
   merge-method: squash
 ```
 
@@ -88,33 +85,26 @@ Supported path forms:
 
 | Form | Meaning |
 | --- | --- |
-| `owner/repo/path@ref` | Clone a GitHub repository and use `path` inside it. `path` may be omitted to use the repository root. `@ref` may be omitted to use the repository default branch. |
+| `owner/repo/path@ref` | Clone a GitHub repository and use `path` inside it. `path` may be omitted to use the repository root. `@ref` may be omitted to use the default branch. |
 | `./relative/path` | Resolve relative to the YAML file that contains the reference. |
 | `../relative/path` | Resolve relative to the YAML file that contains the reference. The result must stay inside that YAML file's repository. |
 | `/root/relative/path` | Resolve from the root of the repository that contains the YAML file. |
 
 `settings` is passed to the convention as JSON-compatible data. Use YAML objects, arrays, strings, numbers, booleans, or null values. Each convention documents the settings it accepts.
 
-```yaml
-conventions:
-  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk
-    settings:
-      version: 10
-```
-
 ### Pull Request Settings
 
-Pull request settings are used only when the command runs with `--open-pr`.
+Pull request settings are used when the command runs with `--open-pr`.
 
 Supported properties:
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `labels` | string sequence | Labels to add to the generated pull request. Missing labels are created automatically. RepoConventions always also adds the `repo-conventions` label. |
-| `reviewers` | string sequence | GitHub users or teams to request as reviewers. Team reviewers use GitHub's `org/team` form. |
+| `labels` | string sequence | Labels to add to the generated pull request. Missing labels are created automatically. The `repo-conventions` label is always added. |
+| `reviewers` | string sequence | GitHub users or teams to request as reviewers. |
 | `assignees` | string sequence | GitHub users to assign. |
 | `draft` | boolean | When true, create the pull request as a draft. |
-| `auto-merge` | boolean | When true, enable GitHub auto-merge after opening or updating the pull request. |
+| `auto-merge` | boolean | When true, enable GitHub auto-merge after opening the pull request. |
 | `merge-method` | string | Preferred auto-merge method: `merge`, `squash`, or `rebase`. Defaults to `squash` when auto-merge is enabled and no single method is configured. |
 
 Pull request settings can appear at three levels:

@@ -185,7 +185,7 @@ repo-conventions apply --git-no-verify
 
 When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
 
-With `--open-pr`, `apply` pushes convention commits and opens or updates a GitHub pull request:
+With `--open-pr`, `apply` pushes any convention commits and opens or updates a GitHub pull request:
 
 ```pwsh
 repo-conventions apply --open-pr
@@ -193,6 +193,8 @@ repo-conventions apply --open-pr --draft
 repo-conventions apply --open-pr --auto-merge --merge-method rebase
 repo-conventions apply --open-pr --no-auto-merge
 ```
+
+If applying the conventions produces no commits, RepoConventions does not push a branch or open a pull request.
 
 `--open-pr` requires:
 

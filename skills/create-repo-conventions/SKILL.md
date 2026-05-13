@@ -146,14 +146,11 @@ Execution contract:
 Standard header for `convention.ps1`:
 
 ```pwsh
-#!/usr/bin/env pwsh
 #requires -PSEdition Core
 #requires -Version 7.0
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
-
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 [Console]::InputEncoding = $utf8
 [Console]::OutputEncoding = $utf8

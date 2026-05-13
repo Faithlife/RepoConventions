@@ -802,6 +802,60 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeAppliesPullRequestSettingsFromRemoteConventionYaml()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		var fakeGh = new FakeGitHubCli();
+		remoteRepo.WriteFile("conventions/labeled/convention.yml", """
+			pull-request:
+			  labels:
+			    - remote-label
+			  reviewers:
+			    - octocat
+			  assignees:
+			    - hubot
+			  draft: true
+			""");
+		remoteRepo.WriteFile("conventions/labeled/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'remote.txt') -Value 'remote'
+			""");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: local-test/remote-conventions/conventions/labeled@main
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(
+			["apply", "--open-pr"],
+			repo.RootPath,
+			remoteRepositoryUrlResolver: request =>
+				request is { Owner: "local-test", Repository: "remote-conventions" }
+					? remoteRepo.GetRepositoryUri()
+					: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}."),
+			externalCommandRunner: fakeGh.Runner);
+		var createInvocation = fakeGh.LastInvocation("pr", "create");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("remote.txt"), Is.True);
+			Assert.That(createInvocation, Does.Contain("remote-label"));
+			Assert.That(createInvocation, Does.Contain("--draft"));
+			Assert.That(createInvocation, Does.Contain("--reviewer"));
+			Assert.That(createInvocation, Does.Contain("octocat"));
+			Assert.That(createInvocation, Does.Contain("--assignee"));
+			Assert.That(createInvocation, Does.Contain("hubot"));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1 (labels: remote-label; reviewers: octocat; assignees: hubot)"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeLinksRemoteConventionsInPullRequestBody()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

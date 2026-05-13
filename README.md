@@ -121,7 +121,7 @@ Pull request settings can appear at three levels:
 
 - Top-level `pull-request` settings apply to the whole generated pull request.
 - A top-level convention reference's `pull-request` settings apply only if that convention contributes commits to the generated pull request.
-- A local convention's own `convention.yml` can provide default `pull-request` settings for that convention. Reference-level settings supplement list values and override scalar values. Pull request settings from convention definitions cloned from remote repositories are ignored; put desired PR metadata in the consuming repository's configuration instead.
+- A convention's own `convention.yml` can provide default `pull-request` settings for that convention, whether the convention is stored in the target repository or cloned from a remote repository. Reference-level settings supplement list values and override scalar values.
 
 RepoConventions de-duplicates labels, reviewers, and assignees case-insensitively while preserving the first spelling it sees. Convention-level PR metadata is ignored for conventions that do not create commits during the run.
 

@@ -215,6 +215,35 @@ internal sealed class AddCommandTests
 		}
 	}
 
+	[Test]
+	public async Task AddModeResolvesCustomConfigPathFromCurrentDirectory()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		var launchDirectory = TemporaryDirectoryPath.Create();
+		Directory.CreateDirectory(launchDirectory);
+
+		try
+		{
+			var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--repo", repo.RootPath, "--config", ".config/repo-conventions.yml"], launchDirectory);
+			var configurationPath = Path.Combine(launchDirectory, ".config", "repo-conventions.yml");
+			var references = ConventionConfiguration.Load(configurationPath).Conventions;
+
+			using (Assert.EnterMultipleScope())
+			{
+				Assert.That(result.ExitCode, Is.Zero);
+				Assert.That(result.StandardError, Is.Empty);
+				Assert.That(result.StandardOutput, Does.Contain(".config/repo-conventions.yml"));
+				Assert.That(File.Exists(configurationPath), Is.True);
+				Assert.That(repo.FileExists(".config/repo-conventions.yml"), Is.False);
+				Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+			}
+		}
+		finally
+		{
+			Directory.Delete(launchDirectory, recursive: true);
+		}
+	}
+
 	private static readonly string[] s_addFileConventionPaths = ["./conventions/add-file"];
 	private static readonly string[] s_existingAndNewConventionPaths = ["./conventions/existing", "./conventions/new"];
 	private static readonly string[] s_multipleConventionPaths = ["./conventions/first", "./conventions/second"];

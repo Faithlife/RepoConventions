@@ -30,10 +30,10 @@ internal sealed class ResolvedCliPaths
 				: Path.GetFullPath(repositoryPath, normalizedCurrentDirectory);
 			var resolvedConfigurationPath = string.IsNullOrWhiteSpace(configurationPath)
 				? Path.Combine(repositoryRoot, ".github", "conventions.yml")
-				: Path.GetFullPath(configurationPath, repositoryRoot);
+				: Path.GetFullPath(configurationPath, normalizedCurrentDirectory);
 			var resolvedTempRoot = string.IsNullOrWhiteSpace(tempPath)
 				? Path.GetFullPath(Path.GetTempPath())
-				: Path.GetFullPath(tempPath, repositoryRoot);
+				: Path.GetFullPath(tempPath, normalizedCurrentDirectory);
 
 			return new ResolvedCliPaths(normalizedCurrentDirectory, repositoryRoot, resolvedConfigurationPath, resolvedTempRoot);
 		}

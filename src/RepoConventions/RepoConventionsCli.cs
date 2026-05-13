@@ -60,15 +60,15 @@ internal static class RepoConventionsCli
 		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
 		var applyRepoOption = new Option<string>("--repo")
 		{
-			Description = "Target repository root. Defaults to the current directory.",
+			Description = "Target repository root. Defaults to the current directory. Relative paths are resolved from the current process directory.",
 		};
 		var applyConfigOption = new Option<string>("--config")
 		{
-			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
+			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root. Relative paths are resolved from the current process directory.",
 		};
 		var applyTempOption = new Option<string>("--temp")
 		{
-			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
+			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory.",
 		};
 		applyCommand.Options.Add(applyRepoOption);
 		applyCommand.Options.Add(applyConfigOption);
@@ -106,15 +106,15 @@ internal static class RepoConventionsCli
 		var addCommand = new Command("add", "Add a convention path to the configuration file.");
 		var addRepoOption = new Option<string>("--repo")
 		{
-			Description = "Target repository root. Defaults to the current directory.",
+			Description = "Target repository root. Defaults to the current directory. Relative paths are resolved from the current process directory.",
 		};
 		var addConfigOption = new Option<string>("--config")
 		{
-			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root.",
+			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root. Relative paths are resolved from the current process directory.",
 		};
 		var addTempOption = new Option<string>("--temp")
 		{
-			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory.",
+			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory.",
 		};
 		var addOpenPrOption = new Option<bool>("--open-pr")
 		{

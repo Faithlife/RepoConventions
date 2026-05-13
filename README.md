@@ -45,7 +45,7 @@ repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --o
 
 ## Configuration
 
-RepoConventions reads `.github/conventions.yml` from the target repository root by default. Use `--config <path>` to use a different file. Custom config paths are resolved relative to the target repository root.
+RepoConventions reads `.github/conventions.yml` from the target repository root by default. Use `--config <path>` to use a different file. Relative config paths are resolved from the current process directory.
 
 A configuration file is a YAML mapping with these top-level properties:
 
@@ -147,8 +147,8 @@ Common path options:
 | Option | Description |
 | --- | --- |
 | `--repo <path>` | Target repository root. Defaults to the current directory. Relative paths are resolved from the current process directory. |
-| `--config <path>` | Conventions configuration file. Defaults to `.github/conventions.yml` under the target repository root. Relative paths are resolved from the target repository root. |
-| `--temp <path>` | Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the target repository root. |
+| `--config <path>` | Conventions configuration file. Defaults to `.github/conventions.yml` under the target repository root. Relative paths are resolved from the current process directory. |
+| `--temp <path>` | Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory. |
 
 Common pull request options:
 
@@ -170,7 +170,7 @@ Examples:
 repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
 repo-conventions add ./conventions/local-policy
 repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
-repo-conventions add ./conventions/local-policy --repo ../target-repo --config .config/repo-conventions.yml
+repo-conventions add ./conventions/local-policy --repo ../target-repo --config ../target-repo/.config/repo-conventions.yml
 ```
 
 `add` requires the target repository path to be a Git repository root. Unless `--open-pr` is used, it can run when the target repository has tracked or untracked file changes.
@@ -190,7 +190,7 @@ Examples:
 ```pwsh
 repo-conventions apply
 repo-conventions apply --git-no-verify
-repo-conventions apply --repo ../target-repo --config .config/repo-conventions.yml --temp .artifacts/repo-conventions-temp
+repo-conventions apply --repo ../target-repo --config ../target-repo/.config/repo-conventions.yml --temp ../target-repo/.artifacts/repo-conventions-temp
 ```
 
 `apply` requires no tracked or untracked file changes in the target repository before it starts. More precisely, `git status --porcelain --untracked-files=normal` must produce no output. Ignored files do not matter.

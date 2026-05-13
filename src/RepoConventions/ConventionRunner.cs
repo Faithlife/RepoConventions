@@ -463,6 +463,7 @@ internal sealed class ConventionRunner
 				matchingPullRequest.Body,
 				HasOpenPullRequest: true,
 				ExistingBranchHead: existingBranchHead,
+				ExistingAutoMergeEnabled: matchingPullRequest.AutoMergeRequest is not null,
 				ForcePushAfterUpdate: shouldRestartFromBase,
 				RestartedFromBase: shouldRestartFromBase);
 		}
@@ -482,14 +483,14 @@ internal sealed class ConventionRunner
 			if (!branchExists)
 			{
 				await m_settings.TargetGitClient.SwitchToNewBranchAsync(branchName, cancellationToken);
-				return new PullRequestPreparation(startingBranch, branchName, PullRequestUrl: null, ExistingPullRequestBody: "", HasOpenPullRequest: false, ExistingBranchHead: null, ForcePushAfterUpdate: false, RestartedFromBase: false);
+				return new PullRequestPreparation(startingBranch, branchName, PullRequestUrl: null, ExistingPullRequestBody: "", HasOpenPullRequest: false, ExistingBranchHead: null, ExistingAutoMergeEnabled: false, ForcePushAfterUpdate: false, RestartedFromBase: false);
 			}
 		}
 	}
 
 	private async Task<IReadOnlyList<GitHubPullRequest>> GetOpenPullRequestsAsync(CancellationToken cancellationToken)
 	{
-		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--json", "url,headRefName,baseRefName,body"], cancellationToken);
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "list", "--state", "open", "--json", "url,headRefName,baseRefName,body,autoMergeRequest"], cancellationToken);
 		if (result.ExitCode != 0)
 			throw new InvalidOperationException($"Failed to query pull requests with gh: {result.StandardError}{result.StandardOutput}");
 
@@ -520,6 +521,7 @@ internal sealed class ConventionRunner
 
 		if (pullRequestCommitCount == 0)
 		{
+			await RestoreStartingBranchAndDeletePullRequestBranchAsync(pullRequest, cancellationToken);
 			await WriteCommitSummaryAsync(createdCommitCount);
 			return 0;
 		}
@@ -574,12 +576,17 @@ internal sealed class ConventionRunner
 				return 1;
 
 			await m_settings.StandardOutput.WriteLineAsync($"Closed pull request: {pullRequest.PullRequestUrl}");
+			await RestoreStartingBranchAsync(pullRequest, cancellationToken);
 			await WritePullRequestCommitSummaryAsync(pullRequest, createdCommitCount, pullRequest.PullRequestUrl);
 			return 0;
 		}
 
 		if (!await EnsureRepositoryLabelsAsync(behavior.Labels, cancellationToken))
 			return 1;
+
+		var autoMergeOutcome = await DisableExistingPullRequestAutoMergeIfNeededAsync(pullRequest, behavior, cancellationToken);
+		if (autoMergeOutcome.ExitCode != 0)
+			return autoMergeOutcome.ExitCode;
 
 		if (commitsChanged)
 			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, applySettings.GitNoVerify, cancellationToken);
@@ -598,7 +605,9 @@ internal sealed class ConventionRunner
 		if (!await EnsurePullRequestMetadataAsync(pullRequest.PullRequestUrl, behavior, cancellationToken))
 			return 1;
 
-		var autoMergeOutcome = await CompleteAutoMergeStepAsync(pullRequest.PullRequestUrl, behavior, repositoryInfo, cancellationToken);
+		if (autoMergeOutcome.Summary is null)
+			autoMergeOutcome = await CompleteExistingPullRequestAutoMergeStepAsync(pullRequest, behavior, repositoryInfo, cancellationToken);
+
 		var shouldReportPullRequest = commitsChanged || bodyChanged || ShouldReportPullRequestAnnouncement(behavior, autoMergeOutcome);
 		if (shouldReportPullRequest)
 			await WritePullRequestAnnouncementAsync("Updated pull request", pullRequest.PullRequestUrl, behavior, autoMergeOutcome);
@@ -613,6 +622,17 @@ internal sealed class ConventionRunner
 			return pullRequestCommitCount;
 
 		return await m_settings.TargetGitClient.CountCommitsSinceAsync(pullRequest.ExistingBranchHead, cancellationToken);
+	}
+
+	private async Task RestoreStartingBranchAndDeletePullRequestBranchAsync(PullRequestPreparation pullRequest, CancellationToken cancellationToken)
+	{
+		await RestoreStartingBranchAsync(pullRequest, cancellationToken);
+		await m_settings.TargetGitClient.DeleteBranchAsync(pullRequest.BranchName, cancellationToken);
+	}
+
+	private async Task RestoreStartingBranchAsync(PullRequestPreparation pullRequest, CancellationToken cancellationToken)
+	{
+		await m_settings.TargetGitClient.SwitchToBranchAsync(pullRequest.StartingBranch, cancellationToken);
 	}
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
@@ -929,6 +949,40 @@ internal sealed class ConventionRunner
 		}
 
 		return await HandleAutoMergeFailureAsync(behavior.AutoMergeRequestedExplicitly, $"Could not enable auto-merge using any allowed merge method for {pullRequestUrl}.", BuildAutoMergeFailureReason(fallbackReason, null));
+	}
+
+	private async Task<AutoMergeOutcome> CompleteExistingPullRequestAutoMergeStepAsync(PullRequestPreparation pullRequest, PullRequestBehavior behavior, TargetRepositoryInfo repositoryInfo, CancellationToken cancellationToken)
+	{
+		if (pullRequest.PullRequestUrl is null)
+			throw new InvalidOperationException("Existing pull request URL was not provided.");
+
+		if (!behavior.AutoMergeEnabled)
+			return AutoMergeOutcome.NotUsed();
+
+		return pullRequest.RestartedFromBase
+			? await CompleteAutoMergeStepAsync(pullRequest.PullRequestUrl, behavior, repositoryInfo, cancellationToken)
+			: AutoMergeOutcome.NotUsed();
+	}
+
+	private async Task<AutoMergeOutcome> DisableExistingPullRequestAutoMergeIfNeededAsync(PullRequestPreparation pullRequest, PullRequestBehavior behavior, CancellationToken cancellationToken)
+	{
+		if (pullRequest.PullRequestUrl is null)
+			throw new InvalidOperationException("Existing pull request URL was not provided.");
+
+		return pullRequest.ExistingAutoMergeEnabled && !behavior.AutoMergeEnabled
+			? await DisableAutoMergeAsync(pullRequest.PullRequestUrl, cancellationToken)
+			: AutoMergeOutcome.NotUsed();
+	}
+
+	private async Task<AutoMergeOutcome> DisableAutoMergeAsync(string pullRequestUrl, CancellationToken cancellationToken)
+	{
+		var result = await RunExternalCommandAsync("gh", m_settings.TargetRepositoryRoot, ["pr", "merge", "--disable-auto", pullRequestUrl], cancellationToken);
+		if (result.ExitCode == 0)
+			return AutoMergeOutcome.Disabled();
+
+		var errorMessage = string.Concat(result.StandardError, result.StandardOutput).Trim();
+		await m_settings.StandardError.WriteLineAsync(string.IsNullOrWhiteSpace(errorMessage) ? "Failed to disable auto-merge." : $"Failed to disable auto-merge: {errorMessage}");
+		return AutoMergeOutcome.Failed(errorMessage);
 	}
 
 	private async Task<AutoMergeOutcome> HandleAutoMergeFailureAsync(bool failCommand, string message, string reason)
@@ -1390,9 +1444,9 @@ internal sealed class ConventionRunner
 		public static ConventionExecutionResult Success() => new(true);
 	}
 
-	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName, string Body);
+	private sealed record GitHubPullRequest(string Url, string HeadRefName, string BaseRefName, string Body, JsonNode? AutoMergeRequest);
 
-	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, string ExistingPullRequestBody, bool HasOpenPullRequest, string? ExistingBranchHead, bool ForcePushAfterUpdate, bool RestartedFromBase);
+	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, string ExistingPullRequestBody, bool HasOpenPullRequest, string? ExistingBranchHead, bool ExistingAutoMergeEnabled, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
 	private sealed record PlannedConvention(int OccurrenceId, ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, bool HasExecutableScript, int? SourceConventionOccurrenceId, IReadOnlyList<string> SourceConventionNames);
 
@@ -1405,6 +1459,8 @@ internal sealed class ConventionRunner
 		public static AutoMergeOutcome Failed(string errorMessage) => new(1, null, errorMessage);
 
 		public static AutoMergeOutcome NotUsed() => new(0, null, null);
+
+		public static AutoMergeOutcome Disabled() => new(0, "auto-merge disabled", null);
 
 		public static AutoMergeOutcome Success(string method, string? fallbackReason)
 		{

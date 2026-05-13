@@ -9,7 +9,7 @@ RepoConventions is a .NET tool that runs convention scripts configured for a rep
 Install the tool globally:
 
 ```pwsh
-dotnet tool install --global repo-conventions
+dotnet tool install -g repo-conventions
 ```
 
 Or run it ad hoc with `dnx`:
@@ -45,14 +45,14 @@ repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --o
 
 ## Configuration
 
-RepoConventions reads `.github/conventions.yml` from the target repository root by default. Use `--config <path>` to use a different file. Relative config paths are resolved from the current process directory.
+RepoConventions reads `.github/conventions.yml` from the target repository root by default.
 
-A configuration file is a YAML mapping with these top-level properties:
+A configuration file is a YAML file with these top-level properties:
 
 | Property | Required | Description |
 | --- | --- | --- |
 | `conventions` | Yes | Sequence of convention references, applied in declaration order. |
-| `pull-request` | No | Default pull request metadata used only when running with `--open-pr`. |
+| `pull-request` | No | Pull request settings; used when running with `--open-pr`. |
 
 Complete example:
 
@@ -65,16 +65,13 @@ conventions:
     pull-request:
       labels:
         - dependencies
+      auto-merge: false
 
 pull-request:
   labels:
     - automation
   reviewers:
     - octocat
-  assignees:
-    - octocat
-  draft: true
-  auto-merge: false
   merge-method: squash
 ```
 
@@ -88,33 +85,26 @@ Supported path forms:
 
 | Form | Meaning |
 | --- | --- |
-| `owner/repo/path@ref` | Clone a GitHub repository and use `path` inside it. `path` may be omitted to use the repository root. `@ref` may be omitted to use the repository default branch. |
+| `owner/repo/path@ref` | Clone a GitHub repository and use `path` inside it. `path` may be omitted to use the repository root. `@ref` may be omitted to use the default branch. |
 | `./relative/path` | Resolve relative to the YAML file that contains the reference. |
 | `../relative/path` | Resolve relative to the YAML file that contains the reference. The result must stay inside that YAML file's repository. |
 | `/root/relative/path` | Resolve from the root of the repository that contains the YAML file. |
 
 `settings` is passed to the convention as JSON-compatible data. Use YAML objects, arrays, strings, numbers, booleans, or null values. Each convention documents the settings it accepts.
 
-```yaml
-conventions:
-  - path: Faithlife/CodingGuidelines/conventions/dotnet-sdk
-    settings:
-      version: 10
-```
-
 ### Pull Request Settings
 
-Pull request settings are used only when the command runs with `--open-pr`.
+Pull request settings are used when the command runs with `--open-pr`.
 
 Supported properties:
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `labels` | string sequence | Labels to add to the generated pull request. Missing labels are created automatically. RepoConventions always also adds the `repo-conventions` label. |
-| `reviewers` | string sequence | GitHub users or teams to request as reviewers. Team reviewers use GitHub's `org/team` form. |
+| `labels` | string sequence | Labels to add to the generated pull request. Missing labels are created automatically. The `repo-conventions` label is always added. |
+| `reviewers` | string sequence | GitHub users or teams to request as reviewers. |
 | `assignees` | string sequence | GitHub users to assign. |
 | `draft` | boolean | When true, create the pull request as a draft. |
-| `auto-merge` | boolean | When true, enable GitHub auto-merge after opening or updating the pull request. |
+| `auto-merge` | boolean | When true, enable GitHub auto-merge after opening the pull request. |
 | `merge-method` | string | Preferred auto-merge method: `merge`, `squash`, or `rebase`. Defaults to `squash` when auto-merge is enabled and no single method is configured. |
 
 Pull request settings can appear at three levels:
@@ -170,7 +160,6 @@ Examples:
 repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
 repo-conventions add ./conventions/local-policy
 repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
-repo-conventions add ./conventions/local-policy --repo ../target-repo --config ../target-repo/.config/repo-conventions.yml
 ```
 
 `add` requires the target repository path to be a Git repository root. Unless `--open-pr` is used, it can run when the target repository has tracked or untracked file changes.
@@ -178,7 +167,7 @@ repo-conventions add ./conventions/local-policy --repo ../target-repo --config .
 With `--open-pr`, `add` commits any newly added convention references, applies the resulting configuration, commits convention changes, and opens or updates a pull request:
 
 ```pwsh
-repo-conventions add ./conventions/local-policy --open-pr --git-no-verify
+repo-conventions add ./conventions/local-policy --open-pr
 ```
 
 ### `apply`
@@ -190,33 +179,30 @@ Examples:
 ```pwsh
 repo-conventions apply
 repo-conventions apply --git-no-verify
-repo-conventions apply --repo ../target-repo --config ../target-repo/.config/repo-conventions.yml --temp ../target-repo/.artifacts/repo-conventions-temp
 ```
 
-`apply` requires no tracked or untracked file changes in the target repository before it starts. More precisely, `git status --porcelain --untracked-files=normal` must produce no output. Ignored files do not matter.
+`apply` requires no tracked or untracked file changes in the target repository before it starts.
 
-With `--open-pr`, `apply` pushes convention commits and opens or updates a GitHub pull request:
+When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
+
+With `--open-pr`, `apply` pushes any convention commits and opens or updates a GitHub pull request:
 
 ```pwsh
 repo-conventions apply --open-pr
 repo-conventions apply --open-pr --draft
-repo-conventions apply --open-pr --no-draft
 repo-conventions apply --open-pr --auto-merge --merge-method rebase
 repo-conventions apply --open-pr --no-auto-merge
 ```
 
 `--open-pr` requires:
 
-- no tracked or untracked file changes in the target repository, as reported by `git status --porcelain --untracked-files=normal`
 - a non-detached starting branch
 - no unpushed commits on the starting branch
 - the GitHub CLI `gh` installed and authenticated
 
-When opening a pull request, RepoConventions creates `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
+When opening a pull request, RepoConventions creates a branch named `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
 
-## Commit Behavior
-
-When a convention changes files, RepoConventions commits those changes. A convention can also create its own commits. If a convention makes no changes, no commit is added for that convention.
+If applying the conventions produces no commits, RepoConventions returns to the starting branch and does not keep the generated local branch, push a branch, or open a pull request.
 
 ## Writing Conventions
 

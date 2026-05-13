@@ -143,17 +143,25 @@ Execution contract:
 - The JSON input file contains a single `settings` property.
 - RepoConventions captures stdout and stderr as UTF-8. Set `[Console]::OutputEncoding` before invoking native tools so their output is emitted as UTF-8 too.
 
-Minimal pattern:
+Standard header for `convention.ps1`:
 
-```powershell
+```pwsh
+#requires -PSEdition Core
+#requires -Version 7.0
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSNativeCommandUseErrorActionPreference = $true
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+```
 
+Then, if settings are used:
+
+```pwsh
 $conventionInput = Get-Content -Raw $args[0] | ConvertFrom-Json
 $settings = $conventionInput.settings
-
-# Inspect the target repository and apply only the required changes.
 ```
 
 Authoring expectations:
@@ -165,29 +173,27 @@ Authoring expectations:
 - Avoid interactive prompts, editor launches, global machine-local state, and hidden credentials.
 - Prefer deterministic file writes, stable ordering, and stable line endings.
 - Emit focused output that explains what changed or why the convention cannot continue.
-- Do not create formatting-only churn unless formatting is the convention's purpose.
 - If the convention naturally consists of multiple meaningful steps, the script may create its own commits with informative messages.
 
 ## Commit and Failure Behavior
 
 - On success, if `convention.ps1` leaves tracked or untracked changes and does not create commits itself, RepoConventions creates `Apply convention <name>`.
 - If the script creates commits itself, RepoConventions preserves those commits.
+- If the convention leaves no changes or new commits, RepoConventions does not add a commit for that convention.
 - If the script exits with a non-zero code, RepoConventions hard-resets the target repository to the commit before that convention started and stops the run.
 - RepoConventions builds the convention plan before applying any convention, so path and settings-expression errors prevent partial application.
-- When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
 
 ## Documentation
 
 Always include a `README.md` in the convention directory. Document:
 
 - what the convention does
-- whether it is intended to be consumed directly or composed by another convention
 - every supported setting, including defaults and examples
 - required tools, frameworks, or repository assumptions
 - notable files the convention creates, rewrites, or commits
 - any important limitations or follow-up steps for consumers
 
-Keep repository-level consumer docs focused on using RepoConventions. Put authoring details here and convention-specific behavior in the convention-local README.
+Keep repository-level consumer docs focused on using RepoConventions.
 
 ## Testing
 
@@ -208,4 +214,3 @@ When an AI agent updates a convention:
 - Update `convention.yml`, `convention.ps1`, local docs, and tests as one coherent change.
 - Prefer small, deterministic scripts over broad repository rewrites.
 - Validate by running the narrowest meaningful tests, then the repository's required final test command when appropriate.
-- Do not duplicate consumer configuration or CLI documentation in convention README files; link to [../../README.md](../../README.md) when needed.

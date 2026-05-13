@@ -160,7 +160,6 @@ Examples:
 repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
 repo-conventions add ./conventions/local-policy
 repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
-repo-conventions add ./conventions/local-policy --repo ../target-repo --config ../target-repo/.config/repo-conventions.yml
 ```
 
 `add` requires the target repository path to be a Git repository root. Unless `--open-pr` is used, it can run when the target repository has tracked or untracked file changes.
@@ -168,7 +167,7 @@ repo-conventions add ./conventions/local-policy --repo ../target-repo --config .
 With `--open-pr`, `add` commits any newly added convention references, applies the resulting configuration, commits convention changes, and opens or updates a pull request:
 
 ```pwsh
-repo-conventions add ./conventions/local-policy --open-pr --git-no-verify
+repo-conventions add ./conventions/local-policy --open-pr
 ```
 
 ### `apply`
@@ -180,10 +179,9 @@ Examples:
 ```pwsh
 repo-conventions apply
 repo-conventions apply --git-no-verify
-repo-conventions apply --repo ../target-repo --config ../target-repo/.config/repo-conventions.yml --temp ../target-repo/.artifacts/repo-conventions-temp
 ```
 
-`apply` requires no tracked or untracked file changes in the target repository before it starts. More precisely, `git status --porcelain --untracked-files=normal` must produce no output. Ignored files do not matter.
+`apply` requires no tracked or untracked file changes in the target repository before it starts.
 
 When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
 
@@ -192,19 +190,17 @@ With `--open-pr`, `apply` pushes convention commits and opens or updates a GitHu
 ```pwsh
 repo-conventions apply --open-pr
 repo-conventions apply --open-pr --draft
-repo-conventions apply --open-pr --no-draft
 repo-conventions apply --open-pr --auto-merge --merge-method rebase
 repo-conventions apply --open-pr --no-auto-merge
 ```
 
 `--open-pr` requires:
 
-- no tracked or untracked file changes in the target repository, as reported by `git status --porcelain --untracked-files=normal`
 - a non-detached starting branch
 - no unpushed commits on the starting branch
 - the GitHub CLI `gh` installed and authenticated
 
-When opening a pull request, RepoConventions creates `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
+When opening a pull request, RepoConventions creates a branch named `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
 
 ## Commit Behavior
 

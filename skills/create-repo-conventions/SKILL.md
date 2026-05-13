@@ -190,13 +190,12 @@ Authoring expectations:
 Always include a `README.md` in the convention directory. Document:
 
 - what the convention does
-- whether it is intended to be consumed directly or composed by another convention
 - every supported setting, including defaults and examples
 - required tools, frameworks, or repository assumptions
 - notable files the convention creates, rewrites, or commits
 - any important limitations or follow-up steps for consumers
 
-Keep repository-level consumer docs focused on using RepoConventions. Put authoring details here and convention-specific behavior in the convention-local README.
+Keep repository-level consumer docs focused on using RepoConventions.
 
 ## Testing
 
@@ -217,4 +216,3 @@ When an AI agent updates a convention:
 - Update `convention.yml`, `convention.ps1`, local docs, and tests as one coherent change.
 - Prefer small, deterministic scripts over broad repository rewrites.
 - Validate by running the narrowest meaningful tests, then the repository's required final test command when appropriate.
-- Do not duplicate consumer configuration or CLI documentation in convention README files; link to [../../README.md](../../README.md) when needed.

@@ -182,6 +182,7 @@ Authoring expectations:
 
 - On success, if `convention.ps1` leaves tracked or untracked changes and does not create commits itself, RepoConventions creates `Apply convention <name>`.
 - If the script creates commits itself, RepoConventions preserves those commits.
+- If the convention leaves no changes or new commits, RepoConventions does not add a commit for that convention.
 - If the script exits with a non-zero code, RepoConventions hard-resets the target repository to the commit before that convention started and stops the run.
 - RepoConventions builds the convention plan before applying any convention, so path and settings-expression errors prevent partial application.
 

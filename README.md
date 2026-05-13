@@ -202,10 +202,6 @@ repo-conventions apply --open-pr --no-auto-merge
 
 When opening a pull request, RepoConventions creates a branch named `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
 
-## Commit Behavior
-
-When a convention changes files, RepoConventions commits those changes. A convention can also create its own commits. If a convention makes no changes, no commit is added for that convention.
-
 ## Writing Conventions
 
 For the convention authoring contract, examples, idempotency expectations, script execution details, and agent-friendly workflow, see [skills/create-repo-conventions/SKILL.md](skills/create-repo-conventions/SKILL.md).

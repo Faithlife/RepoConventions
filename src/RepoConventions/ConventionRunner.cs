@@ -582,6 +582,10 @@ internal sealed class ConventionRunner
 		if (!await EnsureRepositoryLabelsAsync(behavior.Labels, cancellationToken))
 			return 1;
 
+		var autoMergeOutcome = await DisableExistingPullRequestAutoMergeIfNeededAsync(pullRequest, behavior, cancellationToken);
+		if (autoMergeOutcome.ExitCode != 0)
+			return autoMergeOutcome.ExitCode;
+
 		if (commitsChanged)
 			await m_settings.TargetGitClient.PushBranchAsync(pullRequest.BranchName, pullRequest.ForcePushAfterUpdate, applySettings.GitNoVerify, cancellationToken);
 
@@ -599,7 +603,9 @@ internal sealed class ConventionRunner
 		if (!await EnsurePullRequestMetadataAsync(pullRequest.PullRequestUrl, behavior, cancellationToken))
 			return 1;
 
-		var autoMergeOutcome = await CompleteExistingPullRequestAutoMergeStepAsync(pullRequest, behavior, repositoryInfo, cancellationToken);
+		if (autoMergeOutcome.Summary is null)
+			autoMergeOutcome = await CompleteExistingPullRequestAutoMergeStepAsync(pullRequest, behavior, repositoryInfo, cancellationToken);
+
 		var shouldReportPullRequest = commitsChanged || bodyChanged || ShouldReportPullRequestAnnouncement(behavior, autoMergeOutcome);
 		if (shouldReportPullRequest)
 			await WritePullRequestAnnouncementAsync("Updated pull request", pullRequest.PullRequestUrl, behavior, autoMergeOutcome);
@@ -938,14 +944,20 @@ internal sealed class ConventionRunner
 			throw new InvalidOperationException("Existing pull request URL was not provided.");
 
 		if (!behavior.AutoMergeEnabled)
-		{
-			return pullRequest.ExistingAutoMergeEnabled
-				? await DisableAutoMergeAsync(pullRequest.PullRequestUrl, cancellationToken)
-				: AutoMergeOutcome.NotUsed();
-		}
+			return AutoMergeOutcome.NotUsed();
 
 		return pullRequest.RestartedFromBase
 			? await CompleteAutoMergeStepAsync(pullRequest.PullRequestUrl, behavior, repositoryInfo, cancellationToken)
+			: AutoMergeOutcome.NotUsed();
+	}
+
+	private async Task<AutoMergeOutcome> DisableExistingPullRequestAutoMergeIfNeededAsync(PullRequestPreparation pullRequest, PullRequestBehavior behavior, CancellationToken cancellationToken)
+	{
+		if (pullRequest.PullRequestUrl is null)
+			throw new InvalidOperationException("Existing pull request URL was not provided.");
+
+		return pullRequest.ExistingAutoMergeEnabled && !behavior.AutoMergeEnabled
+			? await DisableAutoMergeAsync(pullRequest.PullRequestUrl, cancellationToken)
 			: AutoMergeOutcome.NotUsed();
 	}
 

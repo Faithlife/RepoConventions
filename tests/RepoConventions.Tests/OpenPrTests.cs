@@ -1373,7 +1373,9 @@ internal sealed class OpenPrTests
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var operationLogPath = Path.Combine(origin.RootPath, "operation-order.log");
 		var fakeGh = new FakeGitHubCli();
+		fakeGh.DisableAutoMergeCallback = () => File.AppendAllText(operationLogPath, "disable-auto-merge" + Environment.NewLine);
 		fakeGh.AddOpenPullRequest("https://github.com/example/repo/pull/1", "repo-conventions", "main", body: BuildSingleConventionPullRequestBody("repo-conventions", "existing-convention", ".github/conventions/existing-convention"), autoMergeEnabled: true);
 		repo.WriteFile(".github/conventions.yml", """
 			pull-request:
@@ -1392,9 +1394,11 @@ internal sealed class OpenPrTests
 		await repo.PushAsync("origin", "repo-conventions", setUpstream: true);
 		await repo.SwitchToBranchAsync("main");
 		await repo.DeleteBranchAsync("repo-conventions");
+		InstallBareReceiveHook(origin, $"printf 'push\\n' >> '{FormatPathForSh(operationLogPath)}'");
 
 		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
 		var mergeInvocation = fakeGh.LastInvocation("pr", "merge");
+		var operationLog = await File.ReadAllLinesAsync(operationLogPath);
 
 		using (Assert.EnterMultipleScope())
 		{
@@ -1404,6 +1408,9 @@ internal sealed class OpenPrTests
 			Assert.That(fakeGh.CountCalls("pr", "merge"), Is.EqualTo(1));
 			Assert.That(mergeInvocation, Does.Contain("--disable-auto"));
 			Assert.That(mergeInvocation, Does.Not.Contain("--auto"));
+			Assert.That(operationLog, Has.Length.EqualTo(2));
+			Assert.That(operationLog[0], Is.EqualTo("disable-auto-merge"));
+			Assert.That(operationLog[1], Is.EqualTo("push"));
 		}
 	}
 
@@ -1532,9 +1539,21 @@ internal sealed class OpenPrTests
 		$"[Conventions](https://github.com/example/repo/blob/{branchName}/.github/conventions.yml) applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
 		$"- [{conventionName}](https://github.com/example/repo/tree/{branchName}/{conventionPath})");
 
+	private static void InstallBareReceiveHook(TemporaryGitRepository origin, string command)
+	{
+		var hookPath = Path.Combine(origin.RootPath, "hooks", "pre-receive");
+		File.WriteAllText(hookPath, "#!/bin/sh\n" + command + "\n");
+		if (!OperatingSystem.IsWindows())
+			File.SetUnixFileMode(hookPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+	}
+
+	private static string FormatPathForSh(string path) => path.Replace("'", "'\\''", StringComparison.Ordinal).Replace('\\', '/');
+
 	private sealed class FakeGitHubCli
 	{
 		public Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>> Runner => RunAsync;
+
+		public Action? DisableAutoMergeCallback { get; set; }
 
 		public bool AutoMergeAllowed { get; set; } = true;
 
@@ -1618,7 +1637,12 @@ internal sealed class OpenPrTests
 				return Task.FromResult(new ExternalCommandResult(PrCreateExitCode, PrCreateOutput, PrCreateExitCode == 0 ? "" : "create failed"));
 
 			if (arguments is ["pr", "merge", ..])
+			{
+				if (arguments.Contains("--disable-auto"))
+					DisableAutoMergeCallback?.Invoke();
+
 				return Task.FromResult(new ExternalCommandResult(PrMergeExitCode, PrMergeOutput, PrMergeExitCode == 0 ? PrMergeError : (string.IsNullOrEmpty(PrMergeError) ? "merge failed" : PrMergeError)));
+			}
 
 			return Task.FromResult(new ExternalCommandResult(1, "", $"Unexpected gh arguments: {string.Join(' ', arguments)}"));
 		}

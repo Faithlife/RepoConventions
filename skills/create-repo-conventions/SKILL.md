@@ -15,7 +15,6 @@ Produce conventions with stable paths, documented settings, predictable output, 
 
 - Use this skill when creating a new published convention directory.
 - Use this skill when editing `convention.yml`, `convention.ps1`, a convention-local `README.md`, or files that support those conventions.
-- Do not use this skill merely to wire a consuming repository up to existing conventions. Consumer configuration and CLI usage are documented in [../../README.md](../../README.md).
 
 ## Authoring Checklist
 
@@ -30,7 +29,7 @@ Produce conventions with stable paths, documented settings, predictable output, 
 
 - A published convention directory may contain `convention.yml`, `convention.ps1`, or both.
 - If both files exist, repo-conventions applies `convention.yml` first and then executes `convention.ps1`.
-- `convention.yml` composes child conventions and can provide pull request metadata for local conventions.
+- `convention.yml` composes child conventions and can provide pull request settings.
 - `convention.ps1` inspects or rewrites the target repository.
 - `README.md` documents the convention for consumers.
 - Supporting files may be read by the script or by settings expressions.
@@ -43,14 +42,15 @@ conventions/my-convention/
   convention.yml
   convention.ps1
   convention.Tests.ps1
-  supporting-file.txt
+  files/
+    supporting-file.txt
 ```
 
 ## `convention.yml`
 
-Use `convention.yml` when a convention composes other conventions, provides default metadata for local pull requests, or both.
+Use `convention.yml` when a convention composes other conventions, provides default settings for local pull requests, or both.
 
-Composition-only conventions must include a `conventions` sequence. Executable conventions that also contain `convention.ps1` may omit `conventions` and include only `pull-request` metadata.
+Composition-only conventions must include a `conventions` sequence. Executable conventions that also contain `convention.ps1` may omit `conventions` and include only `pull-request` settings.
 
 Example:
 
@@ -96,8 +96,8 @@ conventions:
 - Reads a dotted property path from the parent convention's settings object.
 - When the whole value is one expression, preserves JSON-compatible types such as strings, numbers, booleans, arrays, objects, and null.
 - When embedded in a larger string, converts strings directly, null to `null`, and arrays or objects to compact JSON.
-- Missing exact values are omitted from object properties and array items. If the missing expression is embedded in a larger string, it contributes an empty string.
-- If an exact array expression is used as an array item, its items are spliced into the destination array.
+- Missing values are omitted from object properties and array items. If the missing expression is embedded in a larger string, it contributes an empty string.
+- If an array expression is used as an array item, its items are spliced into the destination array.
 
 `readText("path")`:
 
@@ -126,7 +126,7 @@ pull-request:
   merge-method: squash
 ```
 
-This metadata is applied only when the convention contributes commits to a `--open-pr` run. It is honored for conventions stored in the target repository. Pull request metadata in convention definitions cloned from remote repositories is ignored by consuming repositories; consumers should put desired PR metadata on their own convention reference or top-level configuration.
+This metadata is applied only when the convention contributes commits to a `--open-pr` run. It is honored for conventions stored in the target repository. Pull request settings in convention definitions cloned from remote repositories are ignored by consuming repositories; consumers should put desired PR settings on their own convention reference or top-level configuration.
 
 Supported properties are `labels`, `reviewers`, `assignees`, `draft`, `auto-merge`, and `merge-method`. For complete consumer-side behavior and CLI overrides, see [../../README.md](../../README.md).
 

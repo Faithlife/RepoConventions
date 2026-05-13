@@ -194,8 +194,6 @@ repo-conventions apply --open-pr --auto-merge --merge-method rebase
 repo-conventions apply --open-pr --no-auto-merge
 ```
 
-If applying the conventions produces no commits, RepoConventions does not push a branch or open a pull request.
-
 `--open-pr` requires:
 
 - a non-detached starting branch
@@ -203,6 +201,8 @@ If applying the conventions produces no commits, RepoConventions does not push a
 - the GitHub CLI `gh` installed and authenticated
 
 When opening a pull request, RepoConventions creates a branch named `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
+
+If applying the conventions produces no commits, RepoConventions returns to the starting branch and does not keep the generated local branch, push a branch, or open a pull request.
 
 ## Writing Conventions
 

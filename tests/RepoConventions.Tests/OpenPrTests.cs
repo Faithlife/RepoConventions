@@ -1027,8 +1027,10 @@ internal sealed class OpenPrTests
 		using (Assert.EnterMultipleScope())
 		{
 			Assert.That(result.ExitCode, Is.Zero);
-			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
+			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("main"));
+			Assert.That(await repo.HasBranchAsync("repo-conventions"), Is.False);
 			Assert.That(await origin.HasBranchAsync("repo-conventions"), Is.False);
+			Assert.That(await repo.GetWorkingTreeStatusAsync(), Is.Empty);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "create"), Is.Zero);
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request"));
@@ -1042,7 +1044,14 @@ internal sealed class OpenPrTests
 		using var repo = await TemporaryGitRepository.CreateAsync();
 		using var origin = await TemporaryGitRepository.CreateBareAsync();
 		var fakeGh = new FakeGitHubCli();
-		repo.WriteFile(".github/conventions.yml", "conventions: []\n");
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
 		await repo.CommitAllAsync("Initial commit.");
 		await repo.AddRemoteAsync("origin", origin.RootPath);
 		await repo.PushAsync("origin", "main", setUpstream: true);
@@ -1058,7 +1067,9 @@ internal sealed class OpenPrTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions-3"));
+			Assert.That(await origin.HasBranchAsync("repo-conventions-3"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
+			Assert.That(fakeGh.CountCalls("pr", "create"), Is.EqualTo(1));
 		}
 	}
 
@@ -1086,7 +1097,8 @@ internal sealed class OpenPrTests
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request is already open:"));
 			Assert.That(result.StandardOutput, Does.Contain("Closed pull request: https://github.com/example/repo/pull/2"));
-			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions-2"));
+			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("main"));
+			Assert.That(await repo.HasBranchAsync("repo-conventions-2"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
 			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Is.EqualTo("No convention commits remain."));
@@ -1482,7 +1494,8 @@ internal sealed class OpenPrTests
 			Assert.That(result.StandardError, Is.Empty);
 			Assert.That(result.StandardOutput, Does.Not.Contain("Pull request is already open:"));
 			Assert.That(result.StandardOutput, Does.Contain("Closed pull request: https://github.com/example/repo/pull/1"));
-			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("repo-conventions"));
+			Assert.That(await repo.GetCurrentBranchAsync(), Is.EqualTo("main"));
+			Assert.That(await repo.HasBranchAsync("repo-conventions"), Is.True);
 			Assert.That(fakeGh.CountCalls("pr", "list"), Is.EqualTo(1));
 			Assert.That(fakeGh.CountCalls("pr", "comment"), Is.EqualTo(1));
 			Assert.That(fakeGh.LastInvocation("pr", "comment").Last(), Is.EqualTo("No convention commits remain."));

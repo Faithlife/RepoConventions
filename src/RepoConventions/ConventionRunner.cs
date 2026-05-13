@@ -521,6 +521,7 @@ internal sealed class ConventionRunner
 
 		if (pullRequestCommitCount == 0)
 		{
+			await RestoreStartingBranchAndDeletePullRequestBranchAsync(pullRequest, cancellationToken);
 			await WriteCommitSummaryAsync(createdCommitCount);
 			return 0;
 		}
@@ -575,6 +576,7 @@ internal sealed class ConventionRunner
 				return 1;
 
 			await m_settings.StandardOutput.WriteLineAsync($"Closed pull request: {pullRequest.PullRequestUrl}");
+			await RestoreStartingBranchAsync(pullRequest, cancellationToken);
 			await WritePullRequestCommitSummaryAsync(pullRequest, createdCommitCount, pullRequest.PullRequestUrl);
 			return 0;
 		}
@@ -620,6 +622,17 @@ internal sealed class ConventionRunner
 			return pullRequestCommitCount;
 
 		return await m_settings.TargetGitClient.CountCommitsSinceAsync(pullRequest.ExistingBranchHead, cancellationToken);
+	}
+
+	private async Task RestoreStartingBranchAndDeletePullRequestBranchAsync(PullRequestPreparation pullRequest, CancellationToken cancellationToken)
+	{
+		await RestoreStartingBranchAsync(pullRequest, cancellationToken);
+		await m_settings.TargetGitClient.DeleteBranchAsync(pullRequest.BranchName, cancellationToken);
+	}
+
+	private async Task RestoreStartingBranchAsync(PullRequestPreparation pullRequest, CancellationToken cancellationToken)
+	{
+		await m_settings.TargetGitClient.SwitchToBranchAsync(pullRequest.StartingBranch, cancellationToken);
 	}
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)

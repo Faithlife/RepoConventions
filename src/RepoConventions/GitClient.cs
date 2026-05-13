@@ -108,12 +108,17 @@ internal sealed class GitClient
 		EnsureSuccess(await RunAsync(["switch", "-c", branchName], cancellationToken), $"switch -c {branchName}");
 	}
 
+	public async Task SwitchToBranchAsync(string branchName, CancellationToken cancellationToken)
+	{
+		EnsureSuccess(await RunAsync(["switch", branchName], cancellationToken), $"switch {branchName}");
+	}
+
 	public async Task SwitchToExistingBranchAsync(string branchName, CancellationToken cancellationToken)
 	{
 		var local = await RunAsync(["show-ref", "--verify", "--quiet", $"refs/heads/{branchName}"], cancellationToken);
 		if (local.ExitCode == 0)
 		{
-			EnsureSuccess(await RunAsync(["switch", branchName], cancellationToken), $"switch {branchName}");
+			await SwitchToBranchAsync(branchName, cancellationToken);
 			return;
 		}
 
@@ -133,6 +138,11 @@ internal sealed class GitClient
 			arguments.Add("--no-verify");
 		arguments.AddRange(["-u", "origin", branchName]);
 		EnsureSuccess(await RunAsync(arguments, cancellationToken), string.Join(' ', arguments));
+	}
+
+	public async Task DeleteBranchAsync(string branchName, CancellationToken cancellationToken)
+	{
+		EnsureSuccess(await RunAsync(["branch", "-d", branchName], cancellationToken), $"branch -d {branchName}");
 	}
 
 	public static async Task<GitCommandResult> RunGitAsync(string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)

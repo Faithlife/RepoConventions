@@ -62,6 +62,8 @@ conventions:
     settings:
       version: 10
   - path: ./conventions/local-policy
+    commit:
+      message: Update local policy files
     pull-request:
       labels:
         - dependencies
@@ -77,7 +79,7 @@ pull-request:
 
 ### Convention References
 
-Each item in `conventions` must contain a non-empty `path`. It may also contain `settings` and `pull-request`.
+Each item in `conventions` must contain a non-empty `path`. It may also contain `settings`, `commit`, and `pull-request`.
 
 `path` identifies a convention directory. Each convention should document its own settings, behavior, and required tools.
 
@@ -91,6 +93,23 @@ Supported path forms:
 | `/root/relative/path` | Resolve from the root of the repository that contains the YAML file. |
 
 `settings` is passed to the convention as JSON-compatible data. Use YAML objects, arrays, strings, numbers, booleans, or null values. Each convention documents the settings it accepts.
+
+### Commit Settings
+
+Commit settings control the commit created when a convention script leaves uncommitted changes behind.
+
+Supported properties:
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `message` | string | Commit message to use for the convention's automatic commit. Empty or whitespace-only values are treated as unspecified. |
+
+Commit settings can appear at two levels:
+
+- A convention's `convention.yml` can provide default `commit` settings for that convention.
+- A convention reference's `commit` settings override the convention's defaults.
+
+If no commit message is configured, RepoConventions uses `Apply convention {name}`. Commit settings do not affect commits created directly by a convention script.
 
 ### Pull Request Settings
 

@@ -187,6 +187,7 @@ internal sealed class ConventionRunner
 		try
 		{
 			PullRequestSettings? conventionPullRequest = null;
+			CommitSettings? conventionCommit = null;
 			if (hasConfiguration)
 			{
 				var childSourceConventionNames = BuildSourceConventionNames(resolvedConvention.DisplayName, sourceConventionNames);
@@ -195,9 +196,10 @@ internal sealed class ConventionRunner
 					return false;
 
 				conventionPullRequest = conventionConfiguration.PullRequest;
+				conventionCommit = conventionConfiguration.Commit;
 			}
 
-			plannedConventions.Add(new PlannedConvention(occurrenceId, resolvedConvention, effectiveSettings, MergePullRequestSettings(conventionPullRequest, reference.PullRequest), hasExecutableScript, sourceConventionOccurrenceId, sourceConventionNames));
+			plannedConventions.Add(new PlannedConvention(occurrenceId, resolvedConvention, effectiveSettings, MergePullRequestSettings(conventionPullRequest, reference.PullRequest), MergeCommitSettings(conventionCommit, reference.Commit), hasExecutableScript, sourceConventionOccurrenceId, sourceConventionNames));
 			return true;
 		}
 		finally
@@ -239,7 +241,7 @@ internal sealed class ConventionRunner
 			var conventionScriptPath = Path.Combine(plannedConvention.ResolvedConvention.DirectoryPath, "convention.ps1");
 			if (File.Exists(conventionScriptPath))
 			{
-				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, plannedConvention.Settings, plannedConvention.ResolvedConvention.DisplayName, applySettings, cancellationToken);
+				var scriptResult = await RunConventionScriptAsync(conventionScriptPath, plannedConvention.Settings, plannedConvention.ResolvedConvention.DisplayName, plannedConvention.Commit, applySettings, cancellationToken);
 				if (!scriptResult.Succeeded)
 					return false;
 			}
@@ -278,7 +280,7 @@ internal sealed class ConventionRunner
 		return true;
 	}
 
-	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
+	private async Task<ConventionExecutionResult> RunConventionScriptAsync(string scriptPath, JsonNode? settings, string conventionName, CommitSettings? commit, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
 	{
 		var headBeforeConvention = await m_settings.TargetGitClient.GetHeadAsync(cancellationToken);
 		string inputPath;
@@ -332,7 +334,7 @@ internal sealed class ConventionRunner
 
 			if (await m_settings.TargetGitClient.HasChangesAsync(cancellationToken))
 			{
-				await m_settings.TargetGitClient.CommitAllAsync($"Apply convention {conventionName}", applySettings.GitNoVerify, cancellationToken);
+				await m_settings.TargetGitClient.CommitAllAsync(commit?.Message ?? $"Apply convention {conventionName}", applySettings.GitNoVerify, cancellationToken);
 			}
 
 			return ConventionExecutionResult.Success();
@@ -1190,6 +1192,9 @@ internal sealed class ConventionRunner
 			referenceSettings.MergeMethod ?? conventionSettings.MergeMethod);
 	}
 
+	private static CommitSettings? MergeCommitSettings(CommitSettings? conventionSettings, CommitSettings? referenceSettings) =>
+		referenceSettings ?? conventionSettings;
+
 	private static List<string>? MergeSettingLists(IReadOnlyList<string>? conventionValues, IReadOnlyList<string>? referenceValues)
 	{
 		if (conventionValues is null)
@@ -1448,7 +1453,7 @@ internal sealed class ConventionRunner
 
 	private sealed record PullRequestPreparation(string StartingBranch, string BranchName, string? PullRequestUrl, string ExistingPullRequestBody, bool HasOpenPullRequest, string? ExistingBranchHead, bool ExistingAutoMergeEnabled, bool ForcePushAfterUpdate, bool RestartedFromBase);
 
-	private sealed record PlannedConvention(int OccurrenceId, ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, bool HasExecutableScript, int? SourceConventionOccurrenceId, IReadOnlyList<string> SourceConventionNames);
+	private sealed record PlannedConvention(int OccurrenceId, ResolvedConvention ResolvedConvention, JsonNode? Settings, PullRequestSettings? PullRequest, CommitSettings? Commit, bool HasExecutableScript, int? SourceConventionOccurrenceId, IReadOnlyList<string> SourceConventionNames);
 
 	private sealed record AppliedConvention(int OccurrenceId, string Identity, string DisplayName, string? TargetRepositoryRelativePath, RemoteDirectoryReference? RemoteDirectory, PullRequestSettings? PullRequest, bool HasExecutableScript, int? SourceConventionOccurrenceId, int CreatedCommitCount);
 

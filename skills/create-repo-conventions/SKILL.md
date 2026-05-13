@@ -143,17 +143,28 @@ Execution contract:
 - The JSON input file contains a single `settings` property.
 - RepoConventions captures stdout and stderr as UTF-8. Set `[Console]::OutputEncoding` before invoking native tools so their output is emitted as UTF-8 too.
 
-Minimal pattern:
+Standard header for `convention.ps1`:
 
-```powershell
+```pwsh
+#!/usr/bin/env pwsh
+#requires -PSEdition Core
+#requires -Version 7.0
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSNativeCommandUseErrorActionPreference = $true
 
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+```
+
+Then, if settings are used:
+
+```pwsh
 $conventionInput = Get-Content -Raw $args[0] | ConvertFrom-Json
 $settings = $conventionInput.settings
-
-# Inspect the target repository and apply only the required changes.
 ```
 
 Authoring expectations:
@@ -165,7 +176,6 @@ Authoring expectations:
 - Avoid interactive prompts, editor launches, global machine-local state, and hidden credentials.
 - Prefer deterministic file writes, stable ordering, and stable line endings.
 - Emit focused output that explains what changed or why the convention cannot continue.
-- Do not create formatting-only churn unless formatting is the convention's purpose.
 - If the convention naturally consists of multiple meaningful steps, the script may create its own commits with informative messages.
 
 ## Commit and Failure Behavior
@@ -174,7 +184,6 @@ Authoring expectations:
 - If the script creates commits itself, RepoConventions preserves those commits.
 - If the script exits with a non-zero code, RepoConventions hard-resets the target repository to the commit before that convention started and stops the run.
 - RepoConventions builds the convention plan before applying any convention, so path and settings-expression errors prevent partial application.
-- When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
 
 ## Documentation
 

@@ -195,6 +195,8 @@ repo-conventions apply --repo ../target-repo --config ../target-repo/.config/rep
 
 `apply` requires no tracked or untracked file changes in the target repository before it starts. More precisely, `git status --porcelain --untracked-files=normal` must produce no output. Ignored files do not matter.
 
+When running in GitHub Actions, RepoConventions groups output per convention and appends the final summary line to `GITHUB_STEP_SUMMARY` when that environment variable is available.
+
 With `--open-pr`, `apply` pushes convention commits and opens or updates a GitHub pull request:
 
 ```pwsh

@@ -128,7 +128,7 @@ pull-request:
 
 This metadata is applied only when the convention contributes commits to a `--open-pr` run. It is honored whether the convention is stored in the target repository or cloned from a remote repository. Consumers can supplement list values and override scalar values on their own convention reference or top-level configuration.
 
-Supported properties are `labels`, `reviewers`, `assignees`, `draft`, `auto-merge`, and `merge-method`. For complete consumer-side behavior and CLI overrides, see [../../README.md](../../README.md).
+Supported properties are `labels`, `reviewers`, `assignees`, `draft`, `auto-merge`, and `merge-method`.
 
 ## `convention.ps1`
 
@@ -150,7 +150,6 @@ Standard header for `convention.ps1`:
 #requires -Version 7.0
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$PSNativeCommandUseErrorActionPreference = $true
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 [Console]::InputEncoding = $utf8
 [Console]::OutputEncoding = $utf8

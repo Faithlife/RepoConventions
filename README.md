@@ -109,7 +109,11 @@ Commit settings can appear at two levels:
 - A convention's `convention.yml` can provide default `commit` settings for that convention.
 - A convention reference's `commit` settings override the convention's defaults.
 
+The effective commit message is passed down to child conventions in composite conventions. Child convention definitions and child references can override the inherited message.
+
 If no commit message is configured, RepoConventions uses `Apply convention {name}`. Commit settings do not affect commits created directly by a convention script.
+
+When RepoConventions is about to create an automatic commit with the same message as the previous automatic commit from the same run, it amends that previous commit instead of creating a second adjacent commit with the same message.
 
 ### Pull Request Settings
 

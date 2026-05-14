@@ -20,10 +20,10 @@ internal static class ConventionConfiguration
 			if (string.IsNullOrWhiteSpace(convention.Path))
 				throw new ProgramException($"Convention entries in '{displayPath}' must include a non-empty 'path'.");
 
-			references.Add(new ConventionReference(convention.Path, convention.Settings, ConvertPullRequestRecord(convention.PullRequest)));
+			references.Add(new ConventionReference(convention.Path, convention.Settings, ConvertPullRequestRecord(convention.PullRequest), ConvertCommitRecord(convention.Commit)));
 		}
 
-		return new ConventionFileConfiguration(references, ConvertPullRequestRecord(configuration.PullRequest));
+		return new ConventionFileConfiguration(references, ConvertPullRequestRecord(configuration.PullRequest), ConvertCommitRecord(configuration.Commit));
 	}
 
 	public static bool AddConventionPath(string configurationPath, string conventionPath)
@@ -74,7 +74,7 @@ internal static class ConventionConfiguration
 			if (configuration.Conventions is null)
 			{
 				if (!requireConventions)
-					return new ConfigurationFile { PullRequest = configuration.PullRequest, Conventions = [] };
+					return new ConfigurationFile { PullRequest = configuration.PullRequest, Commit = configuration.Commit, Conventions = [] };
 
 				throw new ProgramException($"Configuration file '{displayPath}' must contain a 'conventions' sequence.");
 			}
@@ -385,10 +385,22 @@ internal static class ConventionConfiguration
 				pullRequest.AutoMerge,
 				pullRequest.MergeMethod);
 
+	private static CommitSettings? ConvertCommitRecord(CommitRecord? commit)
+	{
+		if (commit is null)
+			return null;
+
+		var message = string.IsNullOrWhiteSpace(commit.Message) ? null : commit.Message;
+		return message is null ? null : new CommitSettings(message);
+	}
+
 	private sealed class ConfigurationFile
 	{
 		[JsonPropertyName("pull-request")]
 		public PullRequestRecord? PullRequest { get; init; }
+
+		[JsonPropertyName("commit")]
+		public CommitRecord? Commit { get; init; }
 
 		[JsonPropertyName("conventions")]
 		public List<ConventionRecord> Conventions { get; init; } = null!;
@@ -404,6 +416,15 @@ internal static class ConventionConfiguration
 
 		[JsonPropertyName("pull-request")]
 		public PullRequestRecord? PullRequest { get; init; }
+
+		[JsonPropertyName("commit")]
+		public CommitRecord? Commit { get; init; }
+	}
+
+	private sealed class CommitRecord
+	{
+		[JsonPropertyName("message")]
+		public string? Message { get; init; }
 	}
 
 	private sealed class PullRequestRecord

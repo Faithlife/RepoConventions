@@ -186,6 +186,117 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
+	[Test]
+	public async Task CommitModeUsesReferenceCommitMessageForAutomaticCommit()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			  commit:
+			    message: Update generated file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Update generated file"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeUsesConventionCommitMessageForAutomaticCommit()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.yml", """
+			commit:
+			  message: Update convention output
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Update convention output"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeReferenceCommitMessageOverridesConventionCommitMessage()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/add-file
+			  commit:
+			    message: Update from reference
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.yml", """
+			commit:
+			  message: Update from convention
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Update from reference"));
+		}
+	}
+
+	[TestCase("\"\"")]
+	[TestCase("\"   \"")]
+	public async Task CommitModeTreatsBlankReferenceCommitMessageAsUnspecified(string yamlMessage)
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", $$"""
+			conventions:
+			- path: ./conventions/add-file
+			  commit:
+			    message: {{yamlMessage}}
+			""");
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Apply convention add-file"));
+		}
+	}
+
 	[TestCase(false)]
 	[TestCase(true)]
 	public async Task CommitModeGitNoVerifyControlsPreCommitHookBypass(bool gitNoVerify)

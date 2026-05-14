@@ -1,3 +1,3 @@
 namespace RepoConventions;
 
-internal sealed record ConventionFileConfiguration(IReadOnlyList<ConventionReference> Conventions, PullRequestSettings? PullRequest);
+internal sealed record ConventionFileConfiguration(IReadOnlyList<ConventionReference> Conventions, PullRequestSettings? PullRequest, CommitSettings? Commit);

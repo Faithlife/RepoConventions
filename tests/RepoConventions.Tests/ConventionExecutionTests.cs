@@ -270,6 +270,105 @@ internal sealed class ConventionExecutionTests
 		}
 	}
 
+	[Test]
+	public async Task CommitModePassesCommitMessageToChildConvention()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			  commit:
+			    message: Update composite files
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("child.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Update composite files"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeChildCommitMessageOverridesInheritedCommitMessage()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/parent
+			  commit:
+			    message: Update composite files
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			conventions:
+			- path: ../child
+			  commit:
+			    message: Update child files
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("child.txt"), Is.True);
+			Assert.That(await repo.GetHeadCommitMessageAsync(), Is.EqualTo("Update child files"));
+		}
+	}
+
+	[Test]
+	public async Task CommitModeAmendsConsecutiveAutomaticCommitWithSameMessage()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/first
+			  commit:
+			    message: Update shared files
+			- path: ./conventions/second
+			  commit:
+			    message: Update shared files
+			""");
+		repo.WriteFile(".github/conventions/first/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'first.txt') -Value 'first'
+			""");
+		repo.WriteFile(".github/conventions/second/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'second.txt') -Value 'second'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["apply"], repo.RootPath);
+		var normalizedOutput = NormalizeConventionOutput(result.StandardOutput);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(repo.FileExists("first.txt"), Is.True);
+			Assert.That(repo.FileExists("second.txt"), Is.True);
+			Assert.That(normalizedOutput, Does.Contain("Updated previous commit for convention second."));
+			Assert.That(result.StandardOutput, Does.EndWith("Created 1 commit total." + Environment.NewLine));
+			Assert.That(await repo.GetRecentCommitMessagesAsync(3), Is.EqualTo(s_amendedSharedCommitMessages));
+		}
+	}
+
 	[TestCase("\"\"")]
 	[TestCase("\"   \"")]
 	public async Task CommitModeTreatsBlankReferenceCommitMessageAsUnspecified(string yamlMessage)
@@ -1787,4 +1886,5 @@ internal sealed class ConventionExecutionTests
 
 	private static readonly string[] s_parentThenChildCommitMessages = ["Apply convention parent", "Apply convention child"];
 	private static readonly string[] s_selfCreatedCommitMessages = ["Second self-created commit.", "First self-created commit."];
+	private static readonly string[] s_amendedSharedCommitMessages = ["Update shared files", "Initial commit."];
 }

@@ -78,13 +78,27 @@ internal sealed class GitClient
 
 	public async Task<bool> CommitAllAsync(string message, bool gitNoVerify, CancellationToken cancellationToken)
 	{
-		EnsureSuccess(await RunAsync(["add", "-A"], cancellationToken), "add -A");
-		if (!await HasStagedChangesAsync(cancellationToken))
-			return false;
-
 		var arguments = new List<string> { "commit", "-m", message };
 		if (gitNoVerify)
 			arguments.Add("--no-verify");
+
+		return await CommitStagedChangesAsync(arguments, cancellationToken);
+	}
+
+	public async Task<bool> AmendCommitAllAsync(string message, bool gitNoVerify, CancellationToken cancellationToken)
+	{
+		var arguments = new List<string> { "commit", "--amend", "-m", message };
+		if (gitNoVerify)
+			arguments.Add("--no-verify");
+
+		return await CommitStagedChangesAsync(arguments, cancellationToken);
+	}
+
+	private async Task<bool> CommitStagedChangesAsync(List<string> arguments, CancellationToken cancellationToken)
+	{
+		EnsureSuccess(await RunAsync(["add", "-A"], cancellationToken), "add -A");
+		if (!await HasStagedChangesAsync(cancellationToken))
+			return false;
 
 		EnsureSuccess(await RunAsync(arguments, cancellationToken), $"{string.Join(' ', arguments)}");
 		return true;

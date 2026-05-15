@@ -4,6 +4,9 @@
 
 RepoConventions is a .NET tool that runs convention scripts configured for a repository, committing any resulting changes and optionally opening a GitHub pull request.
 
+> [!CAUTION]
+> This is an inherently dangerous tool. It runs PowerShell scripts from arbitrary GitHub repositories, potentially with full access to local files and production secrets, with the capability of automatically merging pull requests. Only apply conventions from trusted sources. Make sure that conventions from trusted sources don't reference conventions from untrusted sources. Convention paths that are not pinned to a specific SHA are subject to supply chain attacks, so make sure convention repositories are secure and that contributions are carefully reviewed.
+
 ## Quick Start
 
 Install the tool globally:

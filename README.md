@@ -9,22 +9,30 @@ RepoConventions is a .NET tool that runs convention scripts configured for a rep
 
 ## Quick Start
 
-Install the tool globally:
+Before running RepoConventions, make sure you have:
+
+- the .NET 10 SDK or later, which provides `dnx`
+- Git available on `PATH`
+- PowerShell 7 or later available as `pwsh`
+
+Run commands from the target repository root, or pass `--repo <path>`. Referenced convention repositories must be reachable by Git. Commands that create commits (`apply`, `add --commit`, `add --apply`, or `add --open-pr`) must start from a clean working tree, and commands that open pull requests also require a non-detached branch with no unpushed commits and the GitHub CLI `gh` installed and authenticated. Individual conventions may require additional tools.
+
+Run the tool ad hoc with `dnx`:
+
+```pwsh
+dnx repo-conventions --help
+```
+
+If you prefer, install the tool globally as an alternative:
 
 ```pwsh
 dotnet tool install -g repo-conventions
 ```
 
-Or run it ad hoc with `dnx`:
-
-```pwsh
-dnx repo-conventions
-```
-
 To add a convention to the current repository:
 
 ```pwsh
-repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf
 ```
 
 That command creates `.github/conventions.yml` if it does not already exist:
@@ -37,13 +45,13 @@ conventions:
 Commit the configuration file, then apply the convention from the repository root:
 
 ```pwsh
-repo-conventions apply
+dnx repo-conventions apply
 ```
 
 To add the reference, apply it, commit the changes, push a branch, and open a GitHub pull request in one run:
 
 ```pwsh
-repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --open-pr
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --open-pr
 ```
 
 ## Configuration
@@ -154,9 +162,9 @@ When auto-merge is enabled, RepoConventions does not request reviewers or assign
 RepoConventions has three commands:
 
 ```pwsh
-repo-conventions add <path> [<path>...] [options]
-repo-conventions apply [options]
-repo-conventions validate [options]
+dnx repo-conventions add <path> [<path>...] [options]
+dnx repo-conventions apply [options]
+dnx repo-conventions validate [options]
 ```
 
 Common path options:
@@ -184,9 +192,9 @@ Common pull request options:
 Examples:
 
 ```pwsh
-repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
-repo-conventions add ./conventions/local-policy
-repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
+dnx repo-conventions add ./conventions/local-policy
+dnx repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
 ```
 
 `add` requires the target repository path to be a Git repository root. When `--commit`, `--apply`, and `--open-pr` are not used, it can run when the target repository has tracked or untracked file changes.
@@ -194,7 +202,7 @@ repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
 With `--open-pr`, `add` commits any newly added convention references, applies the resulting configuration, commits convention changes, and opens or updates a pull request:
 
 ```pwsh
-repo-conventions add ./conventions/local-policy --open-pr
+dnx repo-conventions add ./conventions/local-policy --open-pr
 ```
 
 ### `validate`
@@ -204,8 +212,8 @@ repo-conventions add ./conventions/local-policy --open-pr
 Examples:
 
 ```pwsh
-repo-conventions validate
-repo-conventions validate --config .config/repo-conventions.yml
+dnx repo-conventions validate
+dnx repo-conventions validate --config .config/repo-conventions.yml
 ```
 
 `validate` requires the target repository path to be a Git repository root. It can run when the target repository has tracked or untracked file changes.
@@ -219,8 +227,8 @@ When validation succeeds, it prints a summary with the number of conventions tha
 Examples:
 
 ```pwsh
-repo-conventions apply
-repo-conventions apply --git-no-verify
+dnx repo-conventions apply
+dnx repo-conventions apply --git-no-verify
 ```
 
 `apply` requires no tracked or untracked file changes in the target repository before it starts.
@@ -230,10 +238,10 @@ When running in GitHub Actions, RepoConventions groups output per convention and
 With `--open-pr`, `apply` pushes any convention commits and opens or updates a GitHub pull request:
 
 ```pwsh
-repo-conventions apply --open-pr
-repo-conventions apply --open-pr --draft
-repo-conventions apply --open-pr --auto-merge --merge-method rebase
-repo-conventions apply --open-pr --no-auto-merge
+dnx repo-conventions apply --open-pr
+dnx repo-conventions apply --open-pr --draft
+dnx repo-conventions apply --open-pr --auto-merge --merge-method rebase
+dnx repo-conventions apply --open-pr --no-auto-merge
 ```
 
 `--open-pr` requires:

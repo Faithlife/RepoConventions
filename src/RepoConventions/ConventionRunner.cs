@@ -37,12 +37,12 @@ internal sealed class ConventionRunner
 		}
 	}
 
-	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, ApplyCommandSettings applySettings, CancellationToken cancellationToken)
+	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, AddCommandSettings addSettings, CancellationToken cancellationToken)
 	{
 		try
 		{
 			PullRequestPreparation? pullRequest = null;
-			if (applySettings.OpenPullRequest)
+			if (addSettings.ApplySettings.OpenPullRequest)
 			{
 				pullRequest = await PreparePullRequestAsync(cancellationToken);
 				if (pullRequest is null)
@@ -63,14 +63,17 @@ internal sealed class ConventionRunner
 				}
 			}
 
-			if (pullRequest is null)
+			if (!addSettings.CommitAddedConventions)
 				return 0;
 
 			if (addedConventionPaths.Count != 0)
-				await m_settings.TargetGitClient.CommitAllAsync(BuildAddConventionsCommitMessage(addedConventionPaths), applySettings.GitNoVerify, cancellationToken);
+				await m_settings.TargetGitClient.CommitAllAsync(BuildAddConventionsCommitMessage(addedConventionPaths), addSettings.ApplySettings.GitNoVerify, cancellationToken);
+
+			if (!addSettings.ApplyConventions)
+				return 0;
 
 			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
-			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, applySettings, pullRequest, cancellationToken);
+			return await RunLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration, addSettings.ApplySettings, pullRequest, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{

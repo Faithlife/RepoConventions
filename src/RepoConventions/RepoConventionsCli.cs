@@ -120,6 +120,14 @@ internal static class RepoConventionsCli
 		{
 			Description = "Add conventions, apply conventions, create commits, and open or update a pull request.",
 		};
+		var addCommitOption = new Option<bool>("--commit")
+		{
+			Description = "Commit added convention paths without applying conventions.",
+		};
+		var addApplyOption = new Option<bool>("--apply")
+		{
+			Description = "Commit added convention paths and apply conventions without opening a pull request.",
+		};
 		var addDraftOption = new Option<bool>("--draft")
 		{
 			Description = "Create the generated pull request as a draft.",
@@ -144,6 +152,8 @@ internal static class RepoConventionsCli
 		addCommand.Options.Add(addConfigOption);
 		addCommand.Options.Add(addTempOption);
 		addCommand.Options.Add(addOpenPrOption);
+		addCommand.Options.Add(addCommitOption);
+		addCommand.Options.Add(addApplyOption);
 		addCommand.Options.Add(addDraftOption);
 		addCommand.Options.Add(addNoDraftOption);
 		addCommand.Options.Add(addAutoMergeOption);
@@ -158,6 +168,8 @@ internal static class RepoConventionsCli
 				addConfigOption,
 				addTempOption,
 				addOpenPrOption,
+				addCommitOption,
+				addApplyOption,
 				addDraftOption,
 				addNoDraftOption,
 				addAutoMergeOption,
@@ -235,13 +247,13 @@ internal static class RepoConventionsCli
 		}
 	}
 
-	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> commitOption, Option<bool> applyOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
 	{
 		try
 		{
 			var paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
 
-			if (!TryGetApplyCommandSettings(parseResult, openPrOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var applySettings, out var errorMessage))
+			if (!TryGetAddCommandSettings(parseResult, openPrOption, commitOption, applyOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var addSettings, out var errorMessage))
 			{
 				await standardError.WriteLineAsync(errorMessage);
 				return 1;
@@ -253,7 +265,7 @@ internal static class RepoConventionsCli
 				return 1;
 			}
 
-			if (applySettings.OpenPullRequest && !await GitRepositoryValidator.IsCleanAsync(paths.RepositoryRoot, cancellationToken))
+			if (addSettings.CommitAddedConventions && !await GitRepositoryValidator.IsCleanAsync(paths.RepositoryRoot, cancellationToken))
 			{
 				await standardError.WriteLineAsync("repo-conventions must be run from a clean repository.");
 				return 1;
@@ -274,7 +286,7 @@ internal static class RepoConventionsCli
 				ExternalCommandRunner = externalCommandRunner,
 			});
 
-			return await conventionRunner.AddAsync(paths.ConfigurationPath, paths.ConfigurationDisplayPath, conventionPaths, applySettings, cancellationToken);
+			return await conventionRunner.AddAsync(paths.ConfigurationPath, paths.ConfigurationDisplayPath, conventionPaths, addSettings, cancellationToken);
 		}
 		catch (ProgramException ex)
 		{
@@ -350,6 +362,20 @@ internal static class RepoConventionsCli
 	{
 		var path = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
 		return string.IsNullOrWhiteSpace(path) ? null : path;
+	}
+
+	private static bool TryGetAddCommandSettings(ParseResult parseResult, Option<bool> openPrOption, Option<bool> commitOption, Option<bool> applyOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, out AddCommandSettings addSettings, out string? errorMessage)
+	{
+		if (!TryGetApplyCommandSettings(parseResult, openPrOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var applySettings, out errorMessage))
+		{
+			addSettings = default!;
+			return false;
+		}
+
+		var applyConventions = parseResult.GetValue(applyOption) || applySettings.OpenPullRequest;
+		var commitAddedConventions = parseResult.GetValue(commitOption) || applyConventions;
+		addSettings = new AddCommandSettings(commitAddedConventions, applyConventions, applySettings);
+		return true;
 	}
 
 	private static bool TryGetApplyCommandSettings(ParseResult parseResult, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, out ApplyCommandSettings applySettings, out string? errorMessage)

@@ -19,12 +19,12 @@ In the current codebase these are convention paths, but this plan uses package p
 
 ### `add`
 
-- Before changing `.github/conventions.yml` or a custom `--config` file, validate each path supplied on the command line.
+- Before changing `.github/conventions.yml` or a custom `--config` file, validate each path that is not already present and would be appended.
 - Resolve paths exactly as they will be resolved after insertion:
   - `./` and `../` paths are relative to the directory containing the conventions configuration file.
   - `/` paths are relative to the target repository root.
   - remote paths use the existing `owner/repo/path@ref` parser and clone behavior.
-- If any supplied path is invalid, return exit code `1`, write the validation errors to stderr, and leave the configuration file unchanged.
+- If any new path is invalid, return exit code `1`, write the validation errors to stderr, and leave the configuration file unchanged.
 - If all supplied paths are valid, keep the existing add behavior for creating or appending the configuration file, duplicate detection, `--commit`, `--apply`, and `--open-pr`.
 
 ### `validate`
@@ -66,7 +66,7 @@ Use the same rules that `apply` already depends on during plan construction:
 - Consider extracting the private resolution and plan-building result into small internal types if needed, but keep behavior inside `ConventionRunner` unless reuse becomes awkward.
 - Add `ExecuteValidateAsync` to `RepoConventionsCli` with the same repository-root and missing-config checks used by `ExecuteApplyAsync`, excluding the clean-repository check.
 - Register the `validate` command in `RepoConventionsCli.InvokeAsync` next to `apply` and `add`.
-- In `ExecuteAddAsync`, construct `ConventionRunner` before calling `AddAsync`, validate the command-line paths, and only then mutate the configuration file.
+- In `ExecuteAddAsync`, construct `ConventionRunner` before calling `AddAsync`, validate only the command-line paths that are not already present, and only then mutate the configuration file.
 - Preserve cancellation handling and `ProgramException` formatting patterns used by the existing commands.
 - Update README CLI reference and examples to document `validate` and the new `add` validation behavior.
 
@@ -92,8 +92,8 @@ Use the same rules that `apply` already depends on during plan construction:
   - `--commit`, `--apply`, and `--open-pr` still happen only after validation succeeds
 - Run focused tests first with the add and validate test fixtures, then run `./build.ps1 test` before merging.
 
-## Open Questions
+## Decisions
 
-- Should `add` validate paths that are already present in the configuration, or only new paths it would append? The stricter and simpler behavior is to validate every supplied path before deciding whether it is already present.
-- Should unpinned remote paths produce warnings? The README already warns about this risk, but making it part of validation could be a separate policy decision.
-- Should `validate` emit one line per convention path or only a summary? A summary is less noisy; detailed success output can be added later if users ask for diagnostics.
+- `add` validates only new paths it would append. Existing paths are left alone to avoid slowing down repeat adds.
+- Unpinned remote paths do not produce warnings.
+- `validate` emits only a summary when validation succeeds.

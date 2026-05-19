@@ -116,17 +116,17 @@ internal static class RepoConventionsCli
 		{
 			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory.",
 		};
-		var addOpenPrOption = new Option<bool>("--open-pr")
-		{
-			Description = "Add conventions, apply conventions, create commits, and open or update a pull request.",
-		};
 		var addCommitOption = new Option<bool>("--commit")
 		{
-			Description = "Commit added convention paths without applying conventions.",
+			Description = "Commit added convention paths.",
 		};
 		var addApplyOption = new Option<bool>("--apply")
 		{
-			Description = "Commit added convention paths and apply conventions without opening a pull request.",
+			Description = "Commit added convention paths and apply all conventions.",
+		};
+		var addOpenPrOption = new Option<bool>("--open-pr")
+		{
+			Description = "Commit added convention paths, apply all conventions, and open or update a pull request.",
 		};
 		var addDraftOption = new Option<bool>("--draft")
 		{

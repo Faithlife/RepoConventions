@@ -9,24 +9,26 @@ RepoConventions is a .NET tool that runs convention scripts configured for a rep
 
 ## Quick Start
 
-Before running RepoConventions, make sure you have:
+Before running RepoConventions, make sure you have installed:
 
-- the .NET 10 SDK or later, which provides `dnx`
-- Git available on `PATH`
-- PowerShell 7 or later available as `pwsh`
+- `dotnet`: .NET 10 SDK or later
+- `pwsh`: PowerShell 7 or later
+- `git`: Git CLI, configured and authenticated
+- `gh`: GitHub CLI, configured and authenticated (for opening PRs)
 
-Run commands from the target repository root, or pass `--repo <path>`. Referenced convention repositories must be reachable by Git. Commands that create commits (`apply`, `add --commit`, `add --apply`, or `add --open-pr`) must start from a clean working tree, and commands that open pull requests also require a non-detached branch with no unpushed commits and the GitHub CLI `gh` installed and authenticated. Individual conventions may require additional tools.
+Individual conventions may require additional tools.
 
-Run the tool ad hoc with `dnx`:
+Run the tool with `dnx`:
 
 ```pwsh
 dnx repo-conventions --help
 ```
 
-If you prefer, install the tool globally as an alternative:
+If you prefer, or to run in a repository configured for .NET 8, install the tool globally and run it without using `dnx`:
 
 ```pwsh
 dotnet tool install -g repo-conventions
+repo-conventions --help
 ```
 
 To add a convention to the current repository:
@@ -46,12 +48,6 @@ Commit the configuration file, then apply the convention from the repository roo
 
 ```pwsh
 dnx repo-conventions apply
-```
-
-To add the reference, apply it, commit the changes, push a branch, and open a GitHub pull request in one run:
-
-```pwsh
-dnx repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf --open-pr
 ```
 
 ## Configuration

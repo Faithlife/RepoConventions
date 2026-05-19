@@ -58,21 +58,7 @@ internal static class RepoConventionsCli
 		rootCommand.SetAction(_ => InvokeHelpAsync(rootCommand, standardOutput, standardError, gitHubStepSummaryPath, cancellationToken));
 
 		var applyCommand = new Command("apply", "Apply conventions and create commits as needed.");
-		var applyRepoOption = new Option<string>("--repo")
-		{
-			Description = "Target repository root. Defaults to the current directory. Relative paths are resolved from the current process directory.",
-		};
-		var applyConfigOption = new Option<string>("--config")
-		{
-			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root. Relative paths are resolved from the current process directory.",
-		};
-		var applyTempOption = new Option<string>("--temp")
-		{
-			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory.",
-		};
-		applyCommand.Options.Add(applyRepoOption);
-		applyCommand.Options.Add(applyConfigOption);
-		applyCommand.Options.Add(applyTempOption);
+		var applyPathOptions = AddPathOptions(applyCommand);
 		applyCommand.Options.Add(openPrOption);
 		applyCommand.Options.Add(draftOption);
 		applyCommand.Options.Add(noDraftOption);
@@ -83,9 +69,7 @@ internal static class RepoConventionsCli
 		applyCommand.SetAction(parseResult =>
 			ExecuteApplyAsync(
 				parseResult,
-				applyRepoOption,
-				applyConfigOption,
-				applyTempOption,
+				applyPathOptions,
 				openPrOption,
 				draftOption,
 				noDraftOption,
@@ -103,19 +87,24 @@ internal static class RepoConventionsCli
 				cancellationToken));
 		rootCommand.Subcommands.Add(applyCommand);
 
+		var validateCommand = new Command("validate", "Validate convention paths without applying conventions.");
+		var validatePathOptions = AddPathOptions(validateCommand);
+		validateCommand.SetAction(parseResult =>
+			ExecuteValidateAsync(
+				parseResult,
+				validatePathOptions,
+				currentDirectory,
+				standardOutput,
+				standardError,
+				remoteRepositoryUrlResolver,
+				externalCommandRunner,
+				shouldUseGitHubActionsGroupMarkers,
+				gitHubStepSummaryPath,
+				cancellationToken));
+		rootCommand.Subcommands.Add(validateCommand);
+
 		var addCommand = new Command("add", "Add a convention path to the configuration file.");
-		var addRepoOption = new Option<string>("--repo")
-		{
-			Description = "Target repository root. Defaults to the current directory. Relative paths are resolved from the current process directory.",
-		};
-		var addConfigOption = new Option<string>("--config")
-		{
-			Description = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root. Relative paths are resolved from the current process directory.",
-		};
-		var addTempOption = new Option<string>("--temp")
-		{
-			Description = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory.",
-		};
+		var addPathOptions = AddPathOptions(addCommand);
 		var addCommitOption = new Option<bool>("--commit")
 		{
 			Description = "Commit added convention paths.",
@@ -148,9 +137,6 @@ internal static class RepoConventionsCli
 		{
 			Description = "Preferred merge method for the generated pull request: merge, squash, or rebase.",
 		};
-		addCommand.Options.Add(addRepoOption);
-		addCommand.Options.Add(addConfigOption);
-		addCommand.Options.Add(addTempOption);
 		addCommand.Options.Add(addOpenPrOption);
 		addCommand.Options.Add(addCommitOption);
 		addCommand.Options.Add(addApplyOption);
@@ -164,9 +150,7 @@ internal static class RepoConventionsCli
 		addCommand.SetAction(parseResult =>
 			ExecuteAddAsync(
 				parseResult,
-				addRepoOption,
-				addConfigOption,
-				addTempOption,
+				addPathOptions,
 				addOpenPrOption,
 				addCommitOption,
 				addApplyOption,
@@ -191,11 +175,11 @@ internal static class RepoConventionsCli
 		return await InvokeParseResultAsync(parseResult, standardOutput, standardError, gitHubStepSummaryPath, cancellationToken);
 	}
 
-	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteApplyAsync(ParseResult parseResult, CliPathOptions pathOptions, Option<bool> openPrOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
 	{
 		try
 		{
-			var paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
+			var paths = ResolveCliPaths(currentDirectory, parseResult, pathOptions);
 
 			if (!TryGetApplyCommandSettings(parseResult, openPrOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var applySettings, out var errorMessage))
 			{
@@ -247,11 +231,55 @@ internal static class RepoConventionsCli
 		}
 	}
 
-	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, Option<string> repoOption, Option<string> configOption, Option<string> tempOption, Option<bool> openPrOption, Option<bool> commitOption, Option<bool> applyOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
+	private static async Task<int> ExecuteValidateAsync(ParseResult parseResult, CliPathOptions pathOptions, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
 	{
 		try
 		{
-			var paths = ResolvedCliPaths.Resolve(currentDirectory, parseResult.GetValue(repoOption), parseResult.GetValue(configOption), parseResult.GetValue(tempOption));
+			var paths = ResolveCliPaths(currentDirectory, parseResult, pathOptions);
+
+			if (!await GitRepositoryValidator.IsRepositoryRootAsync(paths.RepositoryRoot, cancellationToken))
+			{
+				await standardError.WriteLineAsync("repo-conventions must be run from the repository root.");
+				return 1;
+			}
+
+			if (!File.Exists(paths.ConfigurationPath))
+			{
+				await standardError.WriteLineAsync($"The conventions configuration file '{paths.ConfigurationDisplayPath}' was not found.");
+				return 1;
+			}
+
+			var gitClient = new GitClient(paths.RepositoryRoot);
+			var conventionRunner = new ConventionRunner(new ConventionRunnerSettings
+			{
+				TargetRepositoryRoot = paths.RepositoryRoot,
+				TargetGitClient = gitClient,
+				TempRoot = paths.TempRoot,
+				StandardOutput = standardOutput,
+				StandardError = standardError,
+				UseGitHubActionsGroupMarkers = useGitHubActionsGroupMarkers,
+				GitHubStepSummaryPath = gitHubStepSummaryPath,
+				RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
+				ExternalCommandRunner = externalCommandRunner,
+			});
+			return await conventionRunner.ValidateAsync(paths.ConfigurationPath, cancellationToken);
+		}
+		catch (ProgramException ex)
+		{
+			await standardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			return await WriteCancellationMessageAsync(standardError);
+		}
+	}
+
+	private static async Task<int> ExecuteAddAsync(ParseResult parseResult, CliPathOptions pathOptions, Option<bool> openPrOption, Option<bool> commitOption, Option<bool> applyOption, Option<bool> draftOption, Option<bool> noDraftOption, Option<bool> autoMergeOption, Option<bool> noAutoMergeOption, Option<string> mergeMethodOption, Option<bool> gitNoVerifyOption, Argument<string[]> conventionPathArgument, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var paths = ResolveCliPaths(currentDirectory, parseResult, pathOptions);
 
 			if (!TryGetAddCommandSettings(parseResult, openPrOption, commitOption, applyOption, draftOption, noDraftOption, autoMergeOption, noAutoMergeOption, mergeMethodOption, gitNoVerifyOption, out var addSettings, out var errorMessage))
 			{
@@ -285,7 +313,6 @@ internal static class RepoConventionsCli
 				RemoteRepositoryUrlResolver = remoteRepositoryUrlResolver,
 				ExternalCommandRunner = externalCommandRunner,
 			});
-
 			return await conventionRunner.AddAsync(paths.ConfigurationPath, paths.ConfigurationDisplayPath, conventionPaths, addSettings, cancellationToken);
 		}
 		catch (ProgramException ex)
@@ -298,6 +325,35 @@ internal static class RepoConventionsCli
 			return await WriteCancellationMessageAsync(standardError);
 		}
 	}
+
+	private static CliPathOptions AddPathOptions(Command command)
+	{
+		var pathOptions = new CliPathOptions(
+			new Option<string>(c_repoOptionName)
+			{
+				Description = c_repoOptionDescription,
+			},
+			new Option<string>(c_configOptionName)
+			{
+				Description = c_configOptionDescription,
+			},
+			new Option<string>(c_tempOptionName)
+			{
+				Description = c_tempOptionDescription,
+			});
+
+		command.Options.Add(pathOptions.RepositoryRoot);
+		command.Options.Add(pathOptions.Configuration);
+		command.Options.Add(pathOptions.TempRoot);
+		return pathOptions;
+	}
+
+	private static ResolvedCliPaths ResolveCliPaths(string currentDirectory, ParseResult parseResult, CliPathOptions pathOptions) =>
+		ResolvedCliPaths.Resolve(
+			currentDirectory,
+			parseResult.GetValue(pathOptions.RepositoryRoot),
+			parseResult.GetValue(pathOptions.Configuration),
+			parseResult.GetValue(pathOptions.TempRoot));
 
 	private static Task<int> InvokeHelpAsync(RootCommand rootCommand, TextWriter standardOutput, TextWriter standardError, string? gitHubStepSummaryPath, CancellationToken cancellationToken) =>
 		InvokeParseResultAsync(rootCommand.Parse(["--help"]), standardOutput, standardError, gitHubStepSummaryPath, cancellationToken);
@@ -418,6 +474,8 @@ internal static class RepoConventionsCli
 		return true;
 	}
 
+	private sealed record CliPathOptions(Option<string> RepositoryRoot, Option<string> Configuration, Option<string> TempRoot);
+
 	private static class GitRepositoryValidator
 	{
 		public static async Task<bool> IsRepositoryRootAsync(string workingDirectory, CancellationToken cancellationToken)
@@ -435,4 +493,11 @@ internal static class RepoConventionsCli
 			return result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardOutput);
 		}
 	}
+
+	private const string c_repoOptionName = "--repo";
+	private const string c_repoOptionDescription = "Target repository root. Defaults to the current directory. Relative paths are resolved from the current process directory.";
+	private const string c_configOptionName = "--config";
+	private const string c_configOptionDescription = "Conventions configuration file path. Defaults to .github/conventions.yml under the repository root. Relative paths are resolved from the current process directory.";
+	private const string c_tempOptionName = "--temp";
+	private const string c_tempOptionDescription = "Temporary root for RepoConventions-managed transient files. Defaults to the system temp directory. Relative paths are resolved from the current process directory.";
 }

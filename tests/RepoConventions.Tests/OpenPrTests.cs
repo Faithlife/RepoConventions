@@ -802,6 +802,51 @@ internal sealed class OpenPrTests
 	}
 
 	[Test]
+	public async Task OpenPrModeAppliesPullRequestSettingsFromAncestorsOfContributingConventions()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var origin = await TemporaryGitRepository.CreateBareAsync();
+		var fakeGh = new FakeGitHubCli();
+		repo.WriteFile(".github/conventions.yml", """
+			pull-request:
+			  reviewers:
+			    - octocat
+			conventions:
+			- path: ./conventions/parent
+			""");
+		repo.WriteFile(".github/conventions/parent/convention.yml", """
+			pull-request:
+			  labels:
+			    - parent-label
+			  auto-merge: true
+			  merge-method: rebase
+			conventions:
+			- path: ../child
+			""");
+		repo.WriteFile(".github/conventions/child/convention.ps1", """
+			param([string] $configPath)
+			Set-Content -Path (Join-Path $PWD 'child.txt') -Value 'child'
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+		await repo.AddRemoteAsync("origin", origin.RootPath);
+		await repo.PushAsync("origin", "main", setUpstream: true);
+
+		var result = await CliInvocation.InvokeAsync(["apply", "--open-pr"], repo.RootPath, externalCommandRunner: fakeGh.Runner);
+		var createInvocation = fakeGh.LastInvocation("pr", "create");
+		var mergeInvocation = fakeGh.LastInvocation("pr", "merge");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(createInvocation, Does.Contain("parent-label"));
+			Assert.That(createInvocation, Does.Not.Contain("--reviewer"));
+			Assert.That(mergeInvocation, Does.Contain("--auto"));
+			Assert.That(mergeInvocation, Does.Contain("--rebase"));
+			Assert.That(result.StandardOutput, Does.Contain("Opened pull request: https://github.com/example/repo/pull/1 (labels: parent-label; auto-merge, rebase)"));
+		}
+	}
+
+	[Test]
 	public async Task OpenPrModeAppliesPullRequestSettingsFromRemoteConventionYaml()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

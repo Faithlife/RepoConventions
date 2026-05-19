@@ -37,6 +37,29 @@ internal sealed class ConventionRunner
 		}
 	}
 
+	public async Task<int> ValidateAsync(string topLevelConfigPath, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var topLevelConfiguration = ConventionConfiguration.Load(topLevelConfigPath);
+			return await ValidateLoadedConfigurationAsync(topLevelConfigPath, topLevelConfiguration.Conventions, cancellationToken);
+		}
+		catch (ProgramException ex)
+		{
+			await m_settings.StandardError.WriteLineAsync(ex.Message);
+			return 1;
+		}
+	}
+
+	public async Task<bool> ValidateConventionPathsAsync(string configurationPath, IReadOnlyList<string> conventionPaths, CancellationToken cancellationToken)
+	{
+		if (conventionPaths.Count == 0)
+			return true;
+
+		var references = conventionPaths.Select(static x => new ConventionReference(x, Settings: null, PullRequest: null, Commit: null)).ToList();
+		return await BuildConventionPlanAsync(references, configurationPath, new HashSet<string>(StringComparer.Ordinal), new ConventionPlanState(), [], parentSettings: null, inheritedCommit: null, enableSettingsExpressions: false, sourceConventionOccurrenceId: null, sourceConventionNames: Array.Empty<string>(), reportSkippedCycles: false, cancellationToken);
+	}
+
 	public async Task<int> AddAsync(string topLevelConfigPath, string configurationDisplayPath, IReadOnlyList<string> conventionPaths, AddCommandSettings addSettings, CancellationToken cancellationToken)
 	{
 		try
@@ -48,6 +71,10 @@ internal sealed class ConventionRunner
 				if (pullRequest is null)
 					return 1;
 			}
+
+			var conventionPathsToAdd = ConventionConfiguration.GetConventionPathsToAdd(topLevelConfigPath, conventionPaths);
+			if (!await ValidateConventionPathsAsync(topLevelConfigPath, conventionPathsToAdd, cancellationToken))
+				return 1;
 
 			var addedConventionPaths = new List<string>();
 			foreach (var conventionPath in conventionPaths)
@@ -86,7 +113,7 @@ internal sealed class ConventionRunner
 	{
 		var planState = new ConventionPlanState();
 		var plannedConventions = new List<PlannedConvention>();
-		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), planState, plannedConventions, parentSettings: null, inheritedCommit: null, enableSettingsExpressions: false, sourceConventionOccurrenceId: null, sourceConventionNames: Array.Empty<string>(), cancellationToken);
+		var planSucceeded = await BuildConventionPlanAsync(topLevelConfiguration.Conventions, topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), planState, plannedConventions, parentSettings: null, inheritedCommit: null, enableSettingsExpressions: false, sourceConventionOccurrenceId: null, sourceConventionNames: Array.Empty<string>(), reportSkippedCycles: true, cancellationToken);
 		if (!planSucceeded)
 			return 1;
 
@@ -107,6 +134,18 @@ internal sealed class ConventionRunner
 		return 0;
 	}
 
+	private async Task<int> ValidateLoadedConfigurationAsync(string topLevelConfigPath, IReadOnlyList<ConventionReference> references, CancellationToken cancellationToken)
+	{
+		var plannedConventions = new List<PlannedConvention>();
+		var planSucceeded = await BuildConventionPlanAsync(references, topLevelConfigPath, new HashSet<string>(StringComparer.Ordinal), new ConventionPlanState(), plannedConventions, parentSettings: null, inheritedCommit: null, enableSettingsExpressions: false, sourceConventionOccurrenceId: null, sourceConventionNames: Array.Empty<string>(), reportSkippedCycles: false, cancellationToken);
+		if (!planSucceeded)
+			return 1;
+
+		var conventionText = plannedConventions.Count == 1 ? "convention" : "conventions";
+		await m_settings.StandardOutput.WriteLineAsync($"Validated {plannedConventions.Count.ToString(CultureInfo.InvariantCulture)} {conventionText}.");
+		return 0;
+	}
+
 	private async Task WriteExistingPullRequestPreparationMessageAsync(PullRequestPreparation pullRequest)
 	{
 		if (pullRequest.PullRequestUrl is null)
@@ -119,18 +158,18 @@ internal sealed class ConventionRunner
 	private static string BuildAddConventionsCommitMessage(List<string> addedConventionPaths) =>
 		addedConventionPaths.Count == 1 ? $"Add convention {addedConventionPaths[0]}" : "Add repository conventions";
 
-	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, CommitSettings? inheritedCommit, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
+	private async Task<bool> BuildConventionPlanAsync(IReadOnlyList<ConventionReference> references, string configurationPath, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, CommitSettings? inheritedCommit, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, bool reportSkippedCycles, CancellationToken cancellationToken)
 	{
 		foreach (var reference in references)
 		{
-			if (!await AddConventionToPlanAsync(reference, configurationPath, activeConventions, planState, plannedConventions, parentSettings, inheritedCommit, enableSettingsExpressions, sourceConventionOccurrenceId, sourceConventionNames, cancellationToken))
+			if (!await AddConventionToPlanAsync(reference, configurationPath, activeConventions, planState, plannedConventions, parentSettings, inheritedCommit, enableSettingsExpressions, sourceConventionOccurrenceId, sourceConventionNames, reportSkippedCycles, cancellationToken))
 				return false;
 		}
 
 		return true;
 	}
 
-	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, CommitSettings? inheritedCommit, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, CancellationToken cancellationToken)
+	private async Task<bool> AddConventionToPlanAsync(ConventionReference reference, string configurationPath, HashSet<string> activeConventions, ConventionPlanState planState, List<PlannedConvention> plannedConventions, JsonNode? parentSettings, CommitSettings? inheritedCommit, bool enableSettingsExpressions, int? sourceConventionOccurrenceId, IReadOnlyList<string> sourceConventionNames, bool reportSkippedCycles, CancellationToken cancellationToken)
 	{
 		JsonNode? effectiveSettings;
 		ResolvedConvention resolvedConvention;
@@ -157,7 +196,9 @@ internal sealed class ConventionRunner
 
 		if (activeConventions.Contains(resolvedConvention.Identity))
 		{
-			await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: skipped (cycle detected).");
+			if (reportSkippedCycles)
+				await m_settings.StandardOutput.WriteLineAsync($"Convention {resolvedConvention.DisplayName}: skipped (cycle detected).");
+
 			return true;
 		}
 
@@ -195,7 +236,7 @@ internal sealed class ConventionRunner
 			if (conventionConfiguration is not null)
 			{
 				var childSourceConventionNames = BuildSourceConventionNames(resolvedConvention.DisplayName, sourceConventionNames);
-				if (!await BuildConventionPlanAsync(conventionConfiguration.Conventions, conventionConfigPath, activeConventions, planState, plannedConventions, effectiveSettings, effectiveCommit, enableSettingsExpressions: true, occurrenceId, childSourceConventionNames, cancellationToken))
+				if (!await BuildConventionPlanAsync(conventionConfiguration.Conventions, conventionConfigPath, activeConventions, planState, plannedConventions, effectiveSettings, effectiveCommit, enableSettingsExpressions: true, occurrenceId, childSourceConventionNames, reportSkippedCycles, cancellationToken))
 					return false;
 			}
 
@@ -656,7 +697,7 @@ internal sealed class ConventionRunner
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
 	{
-		var contributingConventions = GetContributingConventions(appliedConventions);
+		var contributingConventions = GetPullRequestConventions(appliedConventions);
 		var draft = applySettings.Draft
 			?? repositoryPullRequestSettings?.Draft
 			?? contributingConventions.Any(static x => x.PullRequest?.Draft is true);
@@ -1122,7 +1163,7 @@ internal sealed class ConventionRunner
 
 	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName, string? configurationRepositoryRelativePath)
 	{
-		var visibleConventions = GetPullRequestBodyConventions(appliedConventions);
+		var visibleConventions = GetPullRequestConventions(appliedConventions);
 		var lines = new List<string>
 		{
 			$"{FormatConventionsLabel(targetRepositoryUrl, branchName, configurationRepositoryRelativePath)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
@@ -1135,7 +1176,7 @@ internal sealed class ConventionRunner
 	private static List<AppliedConvention> GetContributingConventions(IReadOnlyList<AppliedConvention> appliedConventions) =>
 		appliedConventions.Where(static x => x.ContributedChanges).ToList();
 
-	private static List<AppliedConvention> GetPullRequestBodyConventions(IReadOnlyList<AppliedConvention> appliedConventions)
+	private static List<AppliedConvention> GetPullRequestConventions(IReadOnlyList<AppliedConvention> appliedConventions)
 	{
 		var visibleConventionOccurrenceIds = new HashSet<int>();
 		var conventionsByOccurrenceId = appliedConventions.ToDictionary(static x => x.OccurrenceId);

@@ -8,6 +8,7 @@ internal sealed class AddCommandTests
 	public async Task AddModeCreatesConventionsFileWhenMissing()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".github/conventions/add-file");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
 		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
@@ -34,6 +35,7 @@ internal sealed class AddCommandTests
 			    settings:
 			      enabled: true
 			""");
+		WriteNoOpConvention(repo, ".github/conventions/new");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
 		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
@@ -52,6 +54,8 @@ internal sealed class AddCommandTests
 	public async Task AddModeAddsMultipleConventionPaths()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".github/conventions/first");
+		WriteNoOpConvention(repo, ".github/conventions/second");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/first", "./conventions/second"], repo.RootPath);
 		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
@@ -92,6 +96,65 @@ internal sealed class AddCommandTests
 	}
 
 	[Test]
+	public async Task AddModeFailsWhenNewConventionPathIsMissing()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/missing"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("./conventions/missing"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddModeLeavesExistingConfigUnchangedWhenNewConventionPathIsInvalid()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			  - path: ./conventions/existing
+			""");
+		WriteNoOpConvention(repo, ".github/conventions/new");
+		var originalContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new", "./conventions/missing"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("./conventions/missing"));
+			Assert.That(updatedContents, Is.EqualTo(originalContents));
+		}
+	}
+
+	[Test]
+	public async Task AddModeValidatesRemoteConventionPath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		using var remoteRepo = await TemporaryGitRepository.CreateAsync();
+		remoteRepo.WriteFile("conventions/add-file/convention.ps1", "# no-op\n");
+		await remoteRepo.CommitAllAsync("Initial remote commit.");
+
+		var result = await CliInvocation.InvokeAsync(
+			["add", "local-test/remote-conventions/conventions/add-file@main"],
+			repo.RootPath,
+			LocalTestRemoteRepositoryUrlResolver(remoteRepo));
+		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml")).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(references.Select(static x => x.Path), Is.EqualTo(["local-test/remote-conventions/conventions/add-file@main"]));
+		}
+	}
+
+	[Test]
 	public async Task AddModePreservesCommentsWhenAppendingConventionPath()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
@@ -108,6 +171,7 @@ internal sealed class AddCommandTests
 
 			# trailing comment
 			""");
+		WriteNoOpConvention(repo, ".github/conventions/new");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
 		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
@@ -137,6 +201,7 @@ internal sealed class AddCommandTests
 			  auto-merge: true
 			conventions: [] # keep comment
 			""");
+		WriteNoOpConvention(repo, ".github/conventions/new");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new"], repo.RootPath);
 		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
@@ -155,6 +220,7 @@ internal sealed class AddCommandTests
 	public async Task AddModeSucceedsEvenWhenRepositoryIsDirty()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".github/conventions/add-file");
 		repo.WriteFile("untracked.txt", "content");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file"], repo.RootPath);
@@ -261,6 +327,7 @@ internal sealed class AddCommandTests
 	public async Task AddModeSupportsRepoOptionOutsideRepositoryRoot()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".github/conventions/add-file");
 		var launchDirectory = TemporaryDirectoryPath.Create();
 		Directory.CreateDirectory(launchDirectory);
 
@@ -289,6 +356,7 @@ internal sealed class AddCommandTests
 	public async Task AddModeSupportsCustomConfigPath()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".config/conventions/add-file");
 
 		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--config", ".config/repo-conventions.yml"], repo.RootPath);
 		var configurationPath = Path.Combine(repo.RootPath, ".config", "repo-conventions.yml");
@@ -314,7 +382,9 @@ internal sealed class AddCommandTests
 
 		try
 		{
-			var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--repo", repo.RootPath, "--config", ".config/repo-conventions.yml"], launchDirectory);
+			WriteNoOpConvention(repo, "conventions/add-file");
+
+			var result = await CliInvocation.InvokeAsync(["add", "/conventions/add-file", "--repo", repo.RootPath, "--config", ".config/repo-conventions.yml"], launchDirectory);
 			var configurationPath = Path.Combine(launchDirectory, ".config", "repo-conventions.yml");
 			var references = ConventionConfiguration.Load(configurationPath).Conventions;
 
@@ -325,7 +395,7 @@ internal sealed class AddCommandTests
 				Assert.That(result.StandardOutput, Does.Contain(".config/repo-conventions.yml"));
 				Assert.That(File.Exists(configurationPath), Is.True);
 				Assert.That(repo.FileExists(".config/repo-conventions.yml"), Is.False);
-				Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+				Assert.That(references.Select(x => x.Path), Is.EqualTo(["/conventions/add-file"]));
 			}
 		}
 		finally
@@ -337,4 +407,13 @@ internal sealed class AddCommandTests
 	private static readonly string[] s_addFileConventionPaths = ["./conventions/add-file"];
 	private static readonly string[] s_existingAndNewConventionPaths = ["./conventions/existing", "./conventions/new"];
 	private static readonly string[] s_multipleConventionPaths = ["./conventions/first", "./conventions/second"];
+
+	private static Func<RemoteRepositoryUrlRequest, string> LocalTestRemoteRepositoryUrlResolver(TemporaryGitRepository remoteRepo) =>
+		request =>
+			request is { Owner: "local-test", Repository: "remote-conventions" }
+				? remoteRepo.GetRepositoryUri()
+				: throw new AssertionException($"Unexpected remote repository {request.Owner}/{request.Repository}.");
+
+	private static void WriteNoOpConvention(TemporaryGitRepository repo, string relativeDirectory) =>
+		repo.WriteFile(Path.Combine(relativeDirectory, "convention.ps1"), "# no-op\n");
 }

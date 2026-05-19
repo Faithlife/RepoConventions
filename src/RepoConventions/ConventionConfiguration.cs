@@ -52,6 +52,23 @@ internal static class ConventionConfiguration
 		return true;
 	}
 
+	public static IReadOnlyList<string> GetConventionPathsToAdd(string configurationPath, IReadOnlyList<string> conventionPaths)
+	{
+		var existingConventionPaths = File.Exists(configurationPath)
+			? Load(configurationPath).Conventions.Select(static x => x.Path).ToHashSet(StringComparer.Ordinal)
+			: new HashSet<string>(StringComparer.Ordinal);
+
+		var conventionPathsToAdd = new List<string>();
+		foreach (var conventionPath in conventionPaths)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(conventionPath);
+			if (existingConventionPaths.Add(conventionPath))
+				conventionPathsToAdd.Add(conventionPath);
+		}
+
+		return conventionPathsToAdd;
+	}
+
 	private static ConfigurationFile LoadConfigurationFile(string path, bool requireConventions) => LoadConfigurationText(path, File.ReadAllText(path), requireConventions);
 
 	private static ConfigurationFile LoadConfigurationText(string path, string yaml, bool requireConventions = true)

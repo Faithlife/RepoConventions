@@ -151,11 +151,12 @@ When auto-merge is enabled, RepoConventions does not request reviewers or assign
 
 ## CLI Reference
 
-RepoConventions has two commands:
+RepoConventions has three commands:
 
 ```pwsh
 repo-conventions add <path> [<path>...] [options]
 repo-conventions apply [options]
+repo-conventions validate [options]
 ```
 
 Common path options:
@@ -178,7 +179,7 @@ Common pull request options:
 
 ### `add`
 
-`repo-conventions add` appends one or more convention paths to the configuration file. If the file is missing, it creates it. If a path is already present, it leaves the file unchanged for that path. If settings are required, they must be added by hand to the configuration file.
+`repo-conventions add` appends one or more convention paths to the configuration file. If the file is missing, it creates it. If a path is already present, it leaves the file unchanged for that path. New paths are validated before the configuration file is changed. If settings are required, they must be added by hand to the configuration file.
 
 Examples:
 
@@ -188,13 +189,28 @@ repo-conventions add ./conventions/local-policy
 repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
 ```
 
-`add` requires the target repository path to be a Git repository root. Unless `--open-pr` is used, it can run when the target repository has tracked or untracked file changes.
+`add` requires the target repository path to be a Git repository root. When `--commit`, `--apply`, and `--open-pr` are not used, it can run when the target repository has tracked or untracked file changes.
 
 With `--open-pr`, `add` commits any newly added convention references, applies the resulting configuration, commits convention changes, and opens or updates a pull request:
 
 ```pwsh
 repo-conventions add ./conventions/local-policy --open-pr
 ```
+
+### `validate`
+
+`repo-conventions validate` loads the configuration file and resolves the complete convention plan without running convention scripts, creating commits, or changing the working tree.
+
+Examples:
+
+```pwsh
+repo-conventions validate
+repo-conventions validate --config .config/repo-conventions.yml
+```
+
+`validate` requires the target repository path to be a Git repository root. It can run when the target repository has tracked or untracked file changes.
+
+When validation succeeds, it prints a summary with the number of conventions that were validated.
 
 ### `apply`
 

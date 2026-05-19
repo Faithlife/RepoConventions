@@ -697,7 +697,7 @@ internal sealed class ConventionRunner
 
 	private PullRequestBehavior BuildPullRequestBehavior(PullRequestSettings? repositoryPullRequestSettings, IReadOnlyList<AppliedConvention> appliedConventions, ApplyCommandSettings applySettings)
 	{
-		var contributingConventions = GetContributingConventions(appliedConventions);
+		var contributingConventions = GetPullRequestConventions(appliedConventions);
 		var draft = applySettings.Draft
 			?? repositoryPullRequestSettings?.Draft
 			?? contributingConventions.Any(static x => x.PullRequest?.Draft is true);
@@ -1163,7 +1163,7 @@ internal sealed class ConventionRunner
 
 	private static string BuildPullRequestBody(IReadOnlyList<AppliedConvention> appliedConventions, string? targetRepositoryUrl, string branchName, string? configurationRepositoryRelativePath)
 	{
-		var visibleConventions = GetPullRequestBodyConventions(appliedConventions);
+		var visibleConventions = GetPullRequestConventions(appliedConventions);
 		var lines = new List<string>
 		{
 			$"{FormatConventionsLabel(targetRepositoryUrl, branchName, configurationRepositoryRelativePath)} applied by [repo-conventions](https://github.com/Faithlife/RepoConventions):",
@@ -1176,7 +1176,7 @@ internal sealed class ConventionRunner
 	private static List<AppliedConvention> GetContributingConventions(IReadOnlyList<AppliedConvention> appliedConventions) =>
 		appliedConventions.Where(static x => x.ContributedChanges).ToList();
 
-	private static List<AppliedConvention> GetPullRequestBodyConventions(IReadOnlyList<AppliedConvention> appliedConventions)
+	private static List<AppliedConvention> GetPullRequestConventions(IReadOnlyList<AppliedConvention> appliedConventions)
 	{
 		var visibleConventionOccurrenceIds = new HashSet<int>();
 		var conventionsByOccurrenceId = appliedConventions.ToDictionary(static x => x.OccurrenceId);

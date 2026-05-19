@@ -168,6 +168,96 @@ internal sealed class AddCommandTests
 	}
 
 	[Test]
+	public async Task AddCommitModeFailsWhenRepositoryIsDirty()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile("README.md", "test");
+		await repo.CommitAllAsync("Initial commit.");
+		repo.WriteFile("dirty.txt", "dirty");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--commit"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("clean repository"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddCommitModeCommitsAddedConventionWithoutApplyingIt()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", "Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'\n");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--commit"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
+		var recentCommitMessages = await repo.GetRecentCommitMessagesAsync(2);
+		var status = await repo.GetWorkingTreeStatusAsync();
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("Applying 1 conventions"));
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+			Assert.That(recentCommitMessages[0], Is.EqualTo("Add convention ./conventions/add-file"));
+			Assert.That(repo.FileExists("created.txt"), Is.False);
+			Assert.That(status, Is.Empty);
+		}
+	}
+
+	[Test]
+	public async Task AddApplyModeFailsWhenRepositoryIsDirty()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile("README.md", "test");
+		await repo.CommitAllAsync("Initial commit.");
+		repo.WriteFile("dirty.txt", "dirty");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--apply"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("clean repository"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddApplyModeCommitsAddedConventionAndAppliesItWithoutOpeningPullRequest()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions/add-file/convention.ps1", "Set-Content -Path (Join-Path $PWD 'created.txt') -Value 'created'\n");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--apply"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
+		var recentCommitMessages = await repo.GetRecentCommitMessagesAsync(3);
+		var status = await repo.GetWorkingTreeStatusAsync();
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("Added convention path './conventions/add-file'"));
+			Assert.That(result.StandardOutput, Does.Contain("Applying 1 conventions"));
+			Assert.That(result.StandardOutput, Does.Not.Contain("Opening pull request"));
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+			Assert.That(recentCommitMessages, Does.Contain("Add convention ./conventions/add-file"));
+			Assert.That(recentCommitMessages, Does.Contain("Apply convention add-file"));
+			Assert.That(repo.FileExists("created.txt"), Is.True);
+			Assert.That(status, Is.Empty);
+		}
+	}
+
+	[Test]
 	public async Task AddModeSupportsRepoOptionOutsideRepositoryRoot()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

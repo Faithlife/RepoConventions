@@ -36,9 +36,11 @@ pull-request:
 
 Each item in `conventions` must contain a non-empty `path`. It may also contain `settings`, `commit`, and `pull-request`.
 
-Use `settings` to pass JSON-compatible data to a convention: objects, arrays, strings, numbers, booleans, or null values. Top-level repository configuration uses literal settings values; child settings expressions are only evaluated inside composite convention configuration.
+Use `settings` to pass JSON-compatible data to a convention: objects, arrays, strings, numbers, booleans, or null values. Top-level repository configuration uses literal settings values.
 
-See [Convention Configuration](/skills/repo-conventions/references/convention-configuration.md) for reference path forms, settings behavior, commit settings, and reference-level pull request settings.
+See [Convention Configuration](./convention-configuration.md) for reference path forms, settings behavior, commit settings, and reference-level pull request settings.
+
+See [Convention Authoring](./convention-authoring.md) for composite conventions and child settings expressions.
 
 ## Pull Request Settings
 
@@ -46,7 +48,7 @@ Top-level `pull-request` settings apply to the generated pull request when the c
 
 List values such as `labels`, `reviewers`, and `assignees` are appended and de-duplicated case-insensitively. Scalar values such as `draft`, `auto-merge`, and `merge-method` can be overridden by reference-level settings or CLI flags.
 
-See [Convention Configuration](/skills/repo-conventions/references/convention-configuration.md#pull-request-settings) for the full pull request settings table and merge behavior.
+See [Convention Configuration](./convention-configuration.md#pull-request-settings) for the full pull request settings table and merge behavior.
 
 ## Validation
 

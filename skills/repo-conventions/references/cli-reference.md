@@ -54,21 +54,6 @@ With `--open-pr`, `add` commits any newly added convention references, applies t
 dnx repo-conventions add ./conventions/local-policy --open-pr
 ```
 
-## `validate`
-
-`repo-conventions validate` loads the configuration file and resolves the complete convention plan without running convention scripts, creating commits, or changing the working tree.
-
-Examples:
-
-```pwsh
-dnx repo-conventions validate
-dnx repo-conventions validate --config .config/repo-conventions.yml
-```
-
-`validate` requires the target repository path to be a Git repository root. It can run when the target repository has tracked or untracked file changes.
-
-When validation succeeds, it prints a summary with the number of conventions that were validated.
-
 ## `apply`
 
 `repo-conventions apply` loads the configuration file, resolves the full convention plan, applies each convention in order, and creates commits for conventions that leave changes behind.
@@ -102,3 +87,18 @@ dnx repo-conventions apply --open-pr --no-auto-merge
 When opening a pull request, RepoConventions creates a branch named `repo-conventions`, `repo-conventions-2`, or the next available suffix. If an open RepoConventions pull request already targets the starting branch, the command updates that pull request instead of opening another one. If the base branch has advanced, the existing PR branch is rebuilt from the current base and force-pushed.
 
 If applying the conventions produces no commits, RepoConventions returns to the starting branch and does not keep the generated local branch, push a branch, or open a pull request.
+
+## `validate`
+
+`repo-conventions validate` loads the configuration file and resolves the complete convention plan without running convention scripts, creating commits, or changing the working tree.
+
+Examples:
+
+```pwsh
+dnx repo-conventions validate
+dnx repo-conventions validate --config .config/repo-conventions.yml
+```
+
+`validate` requires the target repository path to be a Git repository root. It can run when the target repository has tracked or untracked file changes.
+
+When validation succeeds, it prints a summary with the number of conventions that were validated.

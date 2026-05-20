@@ -1,6 +1,6 @@
 # Convention Configuration
 
-RepoConventions uses the same convention reference model in repository configuration and in convention-local `convention.yml` files. A convention directory can also include its own `convention.yml` to compose child conventions, provide default commit settings, provide default pull request settings, or any combination of those.
+RepoConventions uses the same convention reference model in repository configuration and in convention-local `convention.yml` files. This page covers the YAML elements used by repository consumers and convention authors: references, settings, commit settings, and pull request settings.
 
 ## Convention References
 
@@ -19,82 +19,7 @@ Supported path forms:
 
 Local paths must stay inside the repository that contains the YAML file. This rule applies to conventions checked into the target repository and to convention repositories cloned from GitHub.
 
-`settings` is passed to the convention as JSON-compatible data. Use YAML objects, arrays, strings, numbers, booleans, or null values. Top-level repository configuration uses literal settings values. Composite convention child references can use settings expressions.
-
-## `convention.yml`
-
-Use `convention.yml` when a convention composes other conventions, provides default commit settings, provides default pull request settings, or any combination of those.
-
-Composition-only conventions must include a `conventions` sequence. Executable conventions that also contain `convention.ps1` may omit `conventions` and include only `commit` or `pull-request` settings.
-
-Example:
-
-```yaml
-commit:
-  message: Update .NET repository conventions
-
-pull-request:
-  labels:
-    - dependencies
-  auto-merge: true
-  merge-method: squash
-
-conventions:
-  - path: ../dotnet-sdk
-    settings:
-      version: 10
-  - path: ../dotnet-slnx
-```
-
-Guidelines:
-
-- Keep child conventions in the order they should be applied.
-- Use explicit local relative paths, such as `../dotnet-sdk`, for conventions published from the same repository.
-- Keep settings JSON-compatible: objects, arrays, strings, numbers, booleans, or null.
-- Keep settings shallow unless nesting communicates a real domain boundary.
-- Avoid formatting-only churn in generated files unless formatting is the purpose of the convention.
-
-Supported root properties:
-
-| Property | Type | Description |
-| --- | --- | --- |
-| `conventions` | sequence | Child convention references to apply in declaration order. Required when the directory has no `convention.ps1`; optional when the convention is executable. |
-| `commit` | object | Default automatic commit settings for this convention and its child conventions. |
-| `pull-request` | object | Pull request metadata contributed when this convention creates commits. |
-
-## Child Settings Expressions
-
-Composite conventions can map parent settings into child settings with expressions.
-
-`settings` lookup:
-
-```yaml
-conventions:
-  - path: ../dotnet-sdk
-    settings:
-      version: ${{ settings.sdk.version }}
-```
-
-- Reads a dotted property path from the parent convention's settings object.
-- When the whole value is one expression, preserves JSON-compatible types such as strings, numbers, booleans, arrays, objects, and null.
-- When embedded in a larger string, converts strings directly, null to `null`, and arrays or objects to compact JSON.
-- Missing values are omitted from object properties and array items. If the missing expression is embedded in a larger string, it contributes an empty string.
-- If an array expression is used as an array item, its items are spliced into the destination array.
-
-`readText("path")`:
-
-```yaml
-conventions:
-  - path: ../write-file
-    settings:
-      body: ${{ readText("./body.txt") }}
-```
-
-- Reads UTF-8 text from a file. A UTF-8 BOM is ignored.
-- Relative paths resolve from the YAML file that contains the expression.
-- Paths beginning with `/` resolve from the root of the repository that contains the YAML file.
-- Native absolute paths and paths that escape the containing repository are rejected.
-- Use it when file-backed text is clearer than embedding long YAML strings.
+`settings` is passed to the convention as JSON-compatible data. Use YAML objects, arrays, strings, numbers, booleans, or null values. Each convention documents the settings it accepts.
 
 ## Commit Settings
 

@@ -9,7 +9,7 @@ RepoConventions is a .NET tool that runs convention scripts configured for a rep
 
 ## Quick Start
 
-Before running RepoConventions, make sure you have installed:
+Before running RepoConventions, make sure the following tools are installed:
 
 - `dotnet`: .NET 10 SDK or later
 - `pwsh`: PowerShell 7 or later
@@ -24,7 +24,7 @@ Run the tool with `dnx`:
 dnx repo-conventions --help
 ```
 
-If you prefer, or to run in a repository configured for .NET 8, install the tool globally and run it without using `dnx`:
+Alternatively, e.g. to run in a repository configured for .NET 8, which doesn't suppport `dnx`, install the tool globally:
 
 ```pwsh
 dotnet tool install -g repo-conventions
@@ -44,7 +44,7 @@ conventions:
   - path: Faithlife/CodingGuidelines/conventions/gitattributes-lf
 ```
 
-Commit the configuration file, then apply the convention from the repository root:
+Commit the configuration file, then apply the convention:
 
 ```pwsh
 dnx repo-conventions apply
@@ -52,7 +52,7 @@ dnx repo-conventions apply
 
 ## Features
 
-- [**Repository Configuration**](/skills/repo-conventions/references/repository-configuration.md) - Learn how to configure `.github/conventions.yml`, declare local and remote conventions, pass settings, and configure pull request metadata.
-- [**CLI Reference**](/skills/repo-conventions/references/cli-reference.md) - Learn how to use `add`, `validate`, and `apply`, including path options, pull request options, and clean-repository requirements.
-- [**Convention Configuration**](/skills/repo-conventions/references/convention-configuration.md) - Learn the shared YAML model for convention references, `convention.yml`, commit settings, pull request settings, and child settings expressions.
-- [**Convention Authoring**](/skills/repo-conventions/references/convention-authoring.md) - Learn how to create idempotent convention directories with scripts, local documentation, tests, predictable output, and safe failure behavior.
+- [**Repository Configuration**](./skills/repo-conventions/references/repository-configuration.md) — Configure `.github/conventions.yml`, declare local and remote conventions, pass settings, and configure pull request metadata.
+- [**CLI Reference**](./skills/repo-conventions/references/cli-reference.md) — Run the `add`, `validate`, and `apply` commands, with path options, pull request options, and clean-repository requirements.
+- [**Convention Configuration**](./skills/repo-conventions/references/convention-configuration.md) — Learn the shared YAML model for convention references, settings, commit settings, and pull request settings.
+- [**Convention Authoring**](./skills/repo-conventions/references/convention-authoring.md) — Create idempotent convention directories with `convention.yml`, scripts, local documentation, tests, and child settings expressions.

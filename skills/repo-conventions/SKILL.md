@@ -17,7 +17,7 @@ Use this skill when working with RepoConventions configuration, CLI usage, publi
 
 ## Features
 
-- [**Repository Configuration**](/skills/repo-conventions/references/repository-configuration.md) - Learn how to configure `.github/conventions.yml`, declare local and remote conventions, pass settings, and configure pull request metadata.
-- [**CLI Reference**](/skills/repo-conventions/references/cli-reference.md) - Learn how to use `add`, `validate`, and `apply`, including path options, pull request options, and clean-repository requirements.
-- [**Convention Configuration**](/skills/repo-conventions/references/convention-configuration.md) - Learn the shared YAML model for convention references, `convention.yml`, commit settings, pull request settings, and child settings expressions.
-- [**Convention Authoring**](/skills/repo-conventions/references/convention-authoring.md) - Learn how to create idempotent convention directories with scripts, local documentation, tests, predictable output, and safe failure behavior.
+- [**Repository Configuration**](./references/repository-configuration.md) — Configure `.github/conventions.yml`, declare local and remote conventions, pass settings, and configure pull request metadata.
+- [**CLI Reference**](./references/cli-reference.md) — Run the `add`, `validate`, and `apply` commands, with path options, pull request options, and clean-repository requirements.
+- [**Convention Configuration**](./references/convention-configuration.md) — Learn the shared YAML model for convention references, settings, commit settings, and pull request settings.
+- [**Convention Authoring**](./references/convention-authoring.md) — Create idempotent convention directories with `convention.yml`, scripts, local documentation, tests, and child settings expressions.

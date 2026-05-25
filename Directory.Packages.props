@@ -6,14 +6,14 @@
     <PackageVersion Include="System.CommandLine" Version="2.0.5" />
     <PackageVersion Include="YamlDotNet" Version="17.0.1" />
   </ItemGroup>
-  <!-- DO NOT EDIT: faithlife-dotnet-library-targets-properties convention -->
+  <!-- DO NOT EDIT: faithlife-dotnet-library-props/properties convention -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
   </PropertyGroup>
   <!-- END DO NOT EDIT -->
-  <!-- DO NOT EDIT: faithlife-dotnet-library-targets-analyzers convention -->
+  <!-- DO NOT EDIT: faithlife-dotnet-library-props/analyzers convention -->
   <ItemGroup>
     <GlobalPackageReference Include="Faithlife.Analyzers" Version="1.*" />
     <GlobalPackageReference Include="NUnit.Analyzers" Version="4.*" />

@@ -1,11 +1,4 @@
 <Project>
-  <ItemGroup>
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
-    <PackageVersion Include="NUnit" Version="4.5.1" />
-    <PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
-    <PackageVersion Include="System.CommandLine" Version="2.0.5" />
-    <PackageVersion Include="YamlDotNet" Version="17.0.1" />
-  </ItemGroup>
   <!-- DO NOT EDIT: faithlife-dotnet-library-props/properties convention -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
@@ -13,6 +6,13 @@
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
   </PropertyGroup>
   <!-- END DO NOT EDIT -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageVersion Include="NUnit" Version="4.5.1" />
+    <PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.5" />
+    <PackageVersion Include="YamlDotNet" Version="17.0.1" />
+  </ItemGroup>
   <!-- DO NOT EDIT: faithlife-dotnet-library-props/analyzers convention -->
   <ItemGroup>
     <GlobalPackageReference Include="Faithlife.Analyzers" Version="1.*" />

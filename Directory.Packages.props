@@ -1,6 +1,8 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
@@ -10,8 +12,8 @@
     <PackageVersion Include="YamlDotNet" Version="17.0.1" />
   </ItemGroup>
   <ItemGroup>
-    <GlobalPackageReference Include="Faithlife.Analyzers" Version="1.5.1" />
-    <GlobalPackageReference Include="NUnit.Analyzers" Version="4.12.0" />
-    <GlobalPackageReference Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
+    <GlobalPackageReference Include="Faithlife.Analyzers" Version="1.*" />
+    <GlobalPackageReference Include="NUnit.Analyzers" Version="4.*" />
+    <GlobalPackageReference Include="StyleCop.Analyzers" Version="1.*-*" />
   </ItemGroup>
 </Project>

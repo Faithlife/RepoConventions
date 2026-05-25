@@ -9,6 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <AssemblyName>repo-conventions</AssemblyName>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RewritePackageReadmeLinks>true</RewritePackageReadmeLinks>
   </PropertyGroup>
 
   <ItemGroup>

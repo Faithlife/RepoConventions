@@ -33,9 +33,10 @@ dnx repo-conventions validate [options]
 Examples:
 
 ```pwsh
-dnx repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk
-dnx repo-conventions add ./conventions/local-policy
-dnx repo-conventions add ./conventions/dotnet-sdk ./conventions/github-actions
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk-10
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/gitattributes-lf
+dnx repo-conventions add /.github/conventions/local-policy
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/dotnet-sdk-10 Faithlife/CodingGuidelines/conventions/github-actions
 ```
 
 `add` requires the target repository path to be a Git repository root. When `--commit`, `--apply`, and `--open-pr` are not used, it can run when the target repository has tracked or untracked file changes.
@@ -51,7 +52,7 @@ Additional `add` options:
 With `--open-pr`, `add` commits any newly added convention references, applies the resulting configuration, commits convention changes, and opens or updates a pull request:
 
 ```pwsh
-dnx repo-conventions add ./conventions/local-policy --open-pr
+dnx repo-conventions add /.github/conventions/local-policy --open-pr
 ```
 
 ## `apply`

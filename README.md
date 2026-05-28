@@ -44,6 +44,23 @@ conventions:
   - path: Faithlife/CodingGuidelines/conventions/gitattributes-lf
 ```
 
+A configuration can also pass settings to a convention:
+
+```yaml
+conventions:
+  - path: Faithlife/CodingGuidelines/conventions/write-file
+    settings:
+      file: docs/example.md
+      overwrite: false
+```
+
+Use repository-root-relative paths for conventions checked into the target repository:
+
+```yaml
+conventions:
+  - path: /.github/conventions/local-policy
+```
+
 Commit the configuration file, then apply the convention:
 
 ```pwsh

@@ -1,9 +1,5 @@
 # Release Notes
 
-## 0.1.39
+## 1.0.0
 
-* Update package README.
-
-## 0.1.x
-
-* Initial releases.
+* Initial release.

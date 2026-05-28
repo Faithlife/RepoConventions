@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -26,15 +27,52 @@ internal static class ConventionConfiguration
 		return new ConventionFileConfiguration(references, ConvertPullRequestRecord(configuration.PullRequest), ConvertCommitRecord(configuration.Commit));
 	}
 
-	public static bool AddConventionPath(string configurationPath, string conventionPath)
+	public static ConventionReferenceConfiguration ParseConventionReferenceConfiguration(string yaml)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(conventionPath);
+		try
+		{
+			var yamlModel = s_yamlDeserializer.Deserialize(yaml);
+			var json = s_yamlJsonSerializer.Serialize(yamlModel);
+			var rootNode = JsonNode.Parse(json);
+			if (rootNode is not JsonObject rootObject)
+				throw new ProgramException("--with must be a YAML mapping.");
+
+			foreach (var property in rootObject)
+			{
+				if (property.Key == "path")
+					throw new ProgramException("--with cannot include 'path' because the convention path is provided as an argument.");
+
+				if (property.Key is not ("settings" or "pull-request" or "commit"))
+					throw new ProgramException($"--with contains unsupported convention reference key '{property.Key}'. Supported keys are: settings, pull-request, commit.");
+			}
+
+			var configuration = rootObject.Deserialize<ConventionReferenceConfigurationRecord>();
+			return configuration is null
+				? new ConventionReferenceConfiguration(Settings: null, PullRequest: null, Commit: null)
+				: new ConventionReferenceConfiguration(configuration.Settings, ConvertPullRequestRecord(configuration.PullRequest), ConvertCommitRecord(configuration.Commit));
+		}
+		catch (YamlException ex)
+		{
+			throw new ProgramException($"--with is not valid YAML: {ex.Message}", ex);
+		}
+		catch (JsonException ex)
+		{
+			throw new ProgramException($"--with is not valid convention reference configuration: {ex.Message}", ex);
+		}
+	}
+
+	public static bool AddConventionPath(string configurationPath, string conventionPath) =>
+		AddConventionReference(configurationPath, new ConventionReference(conventionPath, Settings: null, PullRequest: null, Commit: null));
+
+	public static bool AddConventionReference(string configurationPath, ConventionReference conventionReference)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(conventionReference.Path);
 
 		if (!File.Exists(configurationPath))
 		{
 			SaveConfigurationFile(configurationPath, new ConfigurationFile
 			{
-				Conventions = [new ConventionRecord { Path = conventionPath }],
+				Conventions = [ConvertConventionReferenceRecord(conventionReference)],
 			});
 			return true;
 		}
@@ -42,31 +80,61 @@ internal static class ConventionConfiguration
 		var yaml = File.ReadAllText(configurationPath);
 		var configuration = LoadConfigurationText(configurationPath, yaml);
 
-		if (configuration.Conventions.Any(x => x.Path == conventionPath))
-			return false;
+		var existingConvention = configuration.Conventions.FirstOrDefault(x => x.Path == conventionReference.Path);
+		if (existingConvention is not null)
+		{
+			if (HasSameConfiguration(existingConvention, conventionReference))
+				return false;
+
+			throw new ProgramException($"Convention path '{conventionReference.Path}' is already present in '{FormatPathForDisplay(configurationPath)}' with different configuration.");
+		}
 
 		var insertionPlan = DetermineConventionInsertionPlan(configurationPath, yaml);
-		var updatedYaml = ApplyConventionInsertion(yaml, insertionPlan, conventionPath);
-		ValidateConventionInsertion(configurationPath, conventionPath, configuration.Conventions.Count + 1, insertionPlan, updatedYaml);
+		var updatedYaml = ApplyConventionInsertion(yaml, insertionPlan, conventionReference);
+		ValidateConventionInsertion(configurationPath, conventionReference, configuration.Conventions.Count + 1, insertionPlan, updatedYaml);
 		File.WriteAllText(configurationPath, NormalizeLineEndings(updatedYaml, GetNewLineSequence(yaml)));
 		return true;
 	}
 
-	public static IReadOnlyList<string> GetConventionPathsToAdd(string configurationPath, IReadOnlyList<string> conventionPaths)
+	public static IReadOnlyList<ConventionReference> GetConventionReferencesToAdd(string configurationPath, IReadOnlyList<ConventionReference> conventionReferences)
 	{
-		var existingConventionPaths = File.Exists(configurationPath)
-			? Load(configurationPath).Conventions.Select(static x => x.Path).ToHashSet(StringComparer.Ordinal)
-			: new HashSet<string>(StringComparer.Ordinal);
+		var existingConventions = File.Exists(configurationPath)
+			? LoadConfigurationFile(configurationPath, requireConventions: true).Conventions
+			: new List<ConventionRecord>();
 
-		var conventionPathsToAdd = new List<string>();
-		foreach (var conventionPath in conventionPaths)
+		var conventionReferencesToAdd = new List<ConventionReference>();
+		foreach (var conventionReference in conventionReferences)
 		{
-			ArgumentException.ThrowIfNullOrWhiteSpace(conventionPath);
-			if (existingConventionPaths.Add(conventionPath))
-				conventionPathsToAdd.Add(conventionPath);
+			ArgumentException.ThrowIfNullOrWhiteSpace(conventionReference.Path);
+
+			var existingConvention = existingConventions.FirstOrDefault(x => x.Path == conventionReference.Path);
+			if (existingConvention is not null)
+			{
+				if (!HasSameConfiguration(existingConvention, conventionReference))
+					throw new ProgramException($"Convention path '{conventionReference.Path}' is already present in '{FormatPathForDisplay(configurationPath)}' with different configuration.");
+
+				continue;
+			}
+
+			var pendingConvention = conventionReferencesToAdd.FirstOrDefault(x => x.Path == conventionReference.Path);
+			if (pendingConvention is not null)
+			{
+				if (!HasSameConfiguration(pendingConvention, conventionReference))
+					throw new ProgramException($"Convention path '{conventionReference.Path}' was provided more than once with different configuration.");
+
+				continue;
+			}
+
+			conventionReferencesToAdd.Add(conventionReference);
 		}
 
-		return conventionPathsToAdd;
+		return conventionReferencesToAdd;
+	}
+
+	public static IReadOnlyList<string> GetConventionPathsToAdd(string configurationPath, IReadOnlyList<string> conventionPaths)
+	{
+		var conventionReferences = conventionPaths.Select(static x => new ConventionReference(x, Settings: null, PullRequest: null, Commit: null)).ToList();
+		return GetConventionReferencesToAdd(configurationPath, conventionReferences).Select(static x => x.Path).ToList();
 	}
 
 	private static ConfigurationFile LoadConfigurationFile(string path, bool requireConventions) => LoadConfigurationText(path, File.ReadAllText(path), requireConventions);
@@ -184,10 +252,10 @@ internal static class ConventionConfiguration
 			keyLine + 1);
 	}
 
-	private static string ApplyConventionInsertion(string yaml, ConventionInsertionPlan insertionPlan, string conventionPath)
+	private static string ApplyConventionInsertion(string yaml, ConventionInsertionPlan insertionPlan, ConventionReference conventionReference)
 	{
 		var newLine = GetNewLineSequence(yaml);
-		var conventionLine = $"{insertionPlan.ItemIndentation}- path: {conventionPath}";
+		var conventionBlock = FormatConventionReferenceBlock(conventionReference, insertionPlan.ItemIndentation, newLine);
 
 		if (insertionPlan.Kind == ConventionInsertionKind.ReplaceEmptyFlowSequence)
 		{
@@ -203,20 +271,18 @@ internal static class ConventionConfiguration
 			return yaml[..insertionPlan.Index]
 				+ rewrittenKeyLine
 				+ (lineBreak.Length == 0 ? newLine : lineBreak)
-				+ conventionLine
-				+ newLine
+				+ conventionBlock
 				+ yaml[(insertionPlan.Index + insertionPlan.Length + lineBreak.Length)..];
 		}
 
 		var needsLeadingNewLine = insertionPlan.Index > 0 && yaml[insertionPlan.Index - 1] != '\n';
 		return yaml[..insertionPlan.Index]
 			+ (needsLeadingNewLine ? newLine : "")
-			+ conventionLine
-			+ newLine
+			+ conventionBlock
 			+ yaml[insertionPlan.Index..];
 	}
 
-	private static void ValidateConventionInsertion(string path, string conventionPath, int expectedConventionCount, ConventionInsertionPlan insertionPlan, string updatedYaml)
+	private static void ValidateConventionInsertion(string path, ConventionReference conventionReference, int expectedConventionCount, ConventionInsertionPlan insertionPlan, string updatedYaml)
 	{
 		var displayPath = FormatPathForDisplay(path);
 		ConfigurationFile reparsedConfiguration;
@@ -226,13 +292,40 @@ internal static class ConventionConfiguration
 		}
 		catch (ProgramException ex)
 		{
-			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{displayPath}'. The text patch at line {insertionPlan.LineNumber} did not reparse successfully: {ex.Message}", ex);
+			throw new ProgramException($"Failed to add convention path '{conventionReference.Path}' to '{displayPath}'. The text patch at line {insertionPlan.LineNumber} did not reparse successfully: {ex.Message}", ex);
 		}
 
-		if (reparsedConfiguration.Conventions.Count != expectedConventionCount || !reparsedConfiguration.Conventions.Any(x => x.Path == conventionPath))
+		if (reparsedConfiguration.Conventions.Count != expectedConventionCount || !reparsedConfiguration.Conventions.Any(x => x.Path == conventionReference.Path && HasSameConfiguration(x, conventionReference)))
 		{
-			throw new ProgramException($"Failed to add convention path '{conventionPath}' to '{displayPath}'. The text patch at line {insertionPlan.LineNumber} reparsed, but the resulting configuration did not contain the expected conventions entry.");
+			throw new ProgramException($"Failed to add convention path '{conventionReference.Path}' to '{displayPath}'. The text patch at line {insertionPlan.LineNumber} reparsed, but the resulting configuration did not contain the expected conventions entry.");
 		}
+	}
+
+	private static string FormatConventionReferenceBlock(ConventionReference conventionReference, string itemIndentation, string newLine)
+	{
+		var json = JsonSerializer.Serialize(ConvertConventionReferenceRecord(conventionReference), s_jsonWriterOptions);
+		var yamlModel = s_yamlDeserializer.Deserialize(new StringReader(json));
+		var yaml = NormalizeLineEndings(s_yamlWriter.Serialize(yamlModel), "\n").TrimEnd('\r', '\n');
+		var lines = yaml.Split('\n');
+		if (lines.Length == 0 || lines[0].Length == 0)
+			throw new ProgramException($"Failed to serialize convention path '{conventionReference.Path}'.");
+
+		var builder = new StringBuilder()
+			.Append(itemIndentation)
+			.Append("- ")
+			.Append(lines[0])
+			.Append(newLine);
+
+		foreach (var line in lines.Skip(1))
+		{
+			builder
+				.Append(itemIndentation)
+				.Append("  ")
+				.Append(line)
+				.Append(newLine);
+		}
+
+		return builder.ToString();
 	}
 
 	private static List<ParsingEvent> GetParsingEvents(string path, string yaml)
@@ -411,6 +504,64 @@ internal static class ConventionConfiguration
 		return message is null ? null : new CommitSettings(message);
 	}
 
+	private static ConventionRecord ConvertConventionReferenceRecord(ConventionReference conventionReference) =>
+		new()
+		{
+			Path = conventionReference.Path,
+			Settings = conventionReference.Settings?.DeepClone(),
+			PullRequest = ConvertPullRequestSettings(conventionReference.PullRequest),
+			Commit = ConvertCommitSettings(conventionReference.Commit),
+		};
+
+	private static PullRequestRecord? ConvertPullRequestSettings(PullRequestSettings? pullRequest) =>
+		pullRequest is null
+			? null
+			: new PullRequestRecord
+			{
+				Labels = pullRequest.Labels?.ToList(),
+				Reviewers = pullRequest.Reviewers?.ToList(),
+				Assignees = pullRequest.Assignees?.ToList(),
+				Draft = pullRequest.Draft,
+				AutoMerge = pullRequest.AutoMerge,
+				MergeMethod = pullRequest.MergeMethod,
+			};
+
+	private static CommitRecord? ConvertCommitSettings(CommitSettings? commit) =>
+		commit is null ? null : new CommitRecord { Message = commit.Message };
+
+	private static bool HasSameConfiguration(ConventionRecord existingConvention, ConventionReference conventionReference) =>
+		JsonNode.DeepEquals(existingConvention.Settings, conventionReference.Settings) &&
+		HasSamePullRequestSettings(ConvertPullRequestRecord(existingConvention.PullRequest), conventionReference.PullRequest) &&
+		HasSameCommitSettings(ConvertCommitRecord(existingConvention.Commit), conventionReference.Commit);
+
+	private static bool HasSameConfiguration(ConventionReference left, ConventionReference right) =>
+		JsonNode.DeepEquals(left.Settings, right.Settings) &&
+		HasSamePullRequestSettings(left.PullRequest, right.PullRequest) &&
+		HasSameCommitSettings(left.Commit, right.Commit);
+
+	private static bool HasSamePullRequestSettings(PullRequestSettings? left, PullRequestSettings? right)
+	{
+		if (left is null || right is null)
+			return left is null && right is null;
+
+		return HasSameStringList(left.Labels, right.Labels) &&
+			HasSameStringList(left.Reviewers, right.Reviewers) &&
+			HasSameStringList(left.Assignees, right.Assignees) &&
+			left.Draft == right.Draft &&
+			left.AutoMerge == right.AutoMerge &&
+			left.MergeMethod == right.MergeMethod;
+	}
+
+	private static bool HasSameCommitSettings(CommitSettings? left, CommitSettings? right) =>
+		left is null || right is null
+			? left is null && right is null
+			: left.Message == right.Message;
+
+	private static bool HasSameStringList(IReadOnlyList<string>? left, IReadOnlyList<string>? right) =>
+		left is null || right is null
+			? left is null && right is null
+			: left.SequenceEqual(right, StringComparer.Ordinal);
+
 	private sealed class ConfigurationFile
 	{
 		[JsonPropertyName("pull-request")]
@@ -421,6 +572,18 @@ internal static class ConventionConfiguration
 
 		[JsonPropertyName("conventions")]
 		public List<ConventionRecord> Conventions { get; init; } = null!;
+	}
+
+	private sealed class ConventionReferenceConfigurationRecord
+	{
+		[JsonPropertyName("settings")]
+		public JsonNode? Settings { get; init; }
+
+		[JsonPropertyName("pull-request")]
+		public PullRequestRecord? PullRequest { get; init; }
+
+		[JsonPropertyName("commit")]
+		public CommitRecord? Commit { get; init; }
 	}
 
 	private sealed class ConventionRecord

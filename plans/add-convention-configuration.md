@@ -20,7 +20,7 @@ Do not use `--config` for the new option. `--config` already means "path to the 
 Add a new `add`-only option:
 
 ```pwsh
-repo-conventions add Faithlife/CodingGuidelines/conventions/dependency-updates --convention-config "{pull-request: {auto-merge: true}}"
+repo-conventions add Faithlife/CodingGuidelines/conventions/dependency-updates --with "{pull-request: {auto-merge: true}}"
 ```
 
 The option value is a YAML mapping fragment for one convention reference. Supported top-level keys should match the existing convention reference shape:
@@ -31,13 +31,14 @@ The option value is a YAML mapping fragment for one convention reference. Suppor
 
 Disallow `path` in the fragment because the command already gets the path from the positional argument.
 
-For the first implementation, require exactly one convention path when `--convention-config` is provided. This keeps the behavior clear and avoids accidentally applying one configuration blob to multiple convention references.
+For the first implementation, require exactly one convention path when `--with` is provided. This keeps the behavior clear and avoids accidentally applying one configuration blob to multiple convention references.
 
 ## Behavior
 
 - If the target configuration file is missing, create it with the configured convention reference.
 - If the target configuration file exists, append the configured reference while preserving comments, surrounding YAML, and line endings as much as the existing `add` implementation does.
-- If the convention path is already present and `--convention-config` is provided, fail with a friendly message instead of silently replacing or merging existing configuration.
+- If the convention path is already present with the same reference configuration, do nothing.
+- If the convention path is already present with different reference configuration, fail with a friendly message instead of silently replacing or merging existing configuration.
 - Validate the convention path before modifying the file, as `add` does today.
 - Validate the YAML fragment before modifying the file.
 - Reparse the updated configuration after patching and fail with the existing text-patch style diagnostic if the generated YAML is invalid.
@@ -53,10 +54,10 @@ For the first implementation, require exactly one convention path when `--conven
 
 ## Implementation Steps
 
-- In `RepoConventionsCli`, add an `Option<string>` named `--convention-config` only to the `add` command.
+- In `RepoConventionsCli`, add an `Option<string>` named `--with` only to the `add` command.
 - Extend `AddCommandSettings` to carry the parsed convention reference configuration, or add a separate parameter to `ConventionRunner.AddAsync` if that reads cleaner.
-- In `TryGetAddCommandSettings`, enforce that `--convention-config` is absent or parseable; keep add/apply/open-pr option validation unchanged.
-- After parsing command arguments, enforce that `--convention-config` is only used with one convention path.
+- In `TryGetAddCommandSettings`, enforce that `--with` is absent or parseable; keep add/apply/open-pr option validation unchanged.
+- After parsing command arguments, enforce that `--with` is only used with one convention path.
 - In `ConventionConfiguration`, add an overload such as `AddConventionReference(string configurationPath, ConventionReference reference)` and keep `AddConventionPath` as a compatibility wrapper.
 - Update missing-file creation to serialize the complete reference, not only the path.
 - Update existing-file insertion so the inserted YAML block can include `settings`, `pull-request`, and `commit` children under the new `- path:` line.
@@ -67,25 +68,26 @@ For the first implementation, require exactly one convention path when `--conven
 
 Add focused tests in `AddCommandTests`:
 
-- Creates a missing `.github/conventions.yml` with `--convention-config "{settings: {file: docs/example.md, overwrite: false}}"`.
+- Creates a missing `.github/conventions.yml` with `--with "{settings: {file: docs/example.md, overwrite: false}}"`.
 - Appends a configured reference to an existing file without dropping existing settings, comments, or trailing content.
 - Supports reference-level pull request configuration with the user's example shape: `{pull-request: {auto-merge: true}}`.
 - Supports reference-level commit configuration: `{commit: {message: Refresh generated files}}`.
 - Fails without changing the file when the YAML fragment is invalid.
 - Fails without changing the file when the fragment contains unknown top-level keys or `path`.
-- Fails with a friendly message when `--convention-config` is used with multiple convention paths.
-- Fails with a friendly message when the path is already present and configuration was provided.
+- Fails with a friendly message when `--with` is used with multiple convention paths.
+- Does nothing when the path is already present with the same configuration.
+- Fails with a friendly message when the path is already present with different configuration.
 
 Add or update help/usage assertions only if this repo already has CLI help tests; otherwise keep the coverage at behavior level.
 
 ## Documentation
 
 - Update `README.md` near the existing `repo-conventions add` example with a short configured-add example.
-- Update `skills/repo-conventions/references/repository-configuration.md` to mention that configured references can be created by `repo-conventions add --convention-config`.
+- Update `skills/repo-conventions/references/repository-configuration.md` to mention that configured references can be created by `repo-conventions add --with`.
 - Keep the existing `--config` documentation as-is for the configuration file path.
 
 ## Future Options
 
-- Add `--settings <yaml>` as shorthand for `--convention-config "{settings: ...}"` if users commonly pass only convention settings.
+- Add `--settings <yaml>` as shorthand for `--with "{settings: ...}"` if users commonly pass only convention settings.
 - Add repeated path/config pairs later if multi-add with distinct configuration becomes important.
 - Consider a future major-version rename of the existing file-path `--config` option to `--config-file`, but do not couple that breaking change to this feature.

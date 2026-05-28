@@ -72,21 +72,24 @@ internal sealed class ConventionRunner
 					return 1;
 			}
 
-			var conventionPathsToAdd = ConventionConfiguration.GetConventionPathsToAdd(topLevelConfigPath, conventionPaths);
-			if (!await ValidateConventionPathsAsync(topLevelConfigPath, conventionPathsToAdd, cancellationToken))
+			var conventionReferences = conventionPaths
+				.Select(x => new ConventionReference(x, addSettings.ReferenceConfiguration?.Settings, addSettings.ReferenceConfiguration?.PullRequest, addSettings.ReferenceConfiguration?.Commit))
+				.ToList();
+			var conventionReferencesToAdd = ConventionConfiguration.GetConventionReferencesToAdd(topLevelConfigPath, conventionReferences);
+			if (!await ValidateConventionPathsAsync(topLevelConfigPath, conventionReferencesToAdd.Select(static x => x.Path).ToList(), cancellationToken))
 				return 1;
 
 			var addedConventionPaths = new List<string>();
-			foreach (var conventionPath in conventionPaths)
+			foreach (var conventionReference in conventionReferences)
 			{
-				if (ConventionConfiguration.AddConventionPath(topLevelConfigPath, conventionPath))
+				if (ConventionConfiguration.AddConventionReference(topLevelConfigPath, conventionReference))
 				{
-					addedConventionPaths.Add(conventionPath);
-					await m_settings.StandardOutput.WriteLineAsync($"Added convention path '{conventionPath}' to '{configurationDisplayPath}'.");
+					addedConventionPaths.Add(conventionReference.Path);
+					await m_settings.StandardOutput.WriteLineAsync($"Added convention path '{conventionReference.Path}' to '{configurationDisplayPath}'.");
 				}
 				else
 				{
-					await m_settings.StandardOutput.WriteLineAsync($"Convention path '{conventionPath}' is already present in '{configurationDisplayPath}'.");
+					await m_settings.StandardOutput.WriteLineAsync($"Convention path '{conventionReference.Path}' is already present in '{configurationDisplayPath}'.");
 				}
 			}
 

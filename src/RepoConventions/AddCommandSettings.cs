@@ -1,3 +1,3 @@
 namespace RepoConventions;
 
-internal sealed record AddCommandSettings(bool CommitAddedConventions, bool ApplyConventions, ApplyCommandSettings ApplySettings);
+internal sealed record AddCommandSettings(bool CommitAddedConventions, bool ApplyConventions, ApplyCommandSettings ApplySettings, ConventionReferenceConfiguration? ReferenceConfiguration);

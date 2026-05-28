@@ -217,6 +217,189 @@ internal sealed class AddCommandTests
 	}
 
 	[Test]
+	public async Task AddModeCreatesConventionsFileWithReferenceConfiguration()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".github/conventions/add-file");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", "{settings: {file: docs/example.md, overwrite: false}, pull-request: {auto-merge: true}}"], repo.RootPath);
+		var configurationPath = Path.Combine(repo.RootPath, ".github", "conventions.yml");
+		var references = ConventionConfiguration.Load(configurationPath).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_addFileConventionPaths));
+			Assert.That(references[0].Settings?["file"]?.GetValue<string>(), Is.EqualTo("docs/example.md"));
+			Assert.That(references[0].Settings?["overwrite"]?.GetValue<bool>(), Is.False);
+			Assert.That(references[0].PullRequest?.AutoMerge, Is.True);
+		}
+	}
+
+	[Test]
+	public async Task AddModeAppendsConfiguredConventionReferenceWithoutDroppingExistingText()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			# leading comment
+			conventions:
+			  - path: ./conventions/existing
+			    settings:
+			      enabled: true
+
+			# trailing comment
+			""");
+		WriteNoOpConvention(repo, ".github/conventions/new");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/new", "--with", "{settings: {enabled: false}, pull-request: {auto-merge: true}}"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml")).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(updatedContents, Does.Contain("# leading comment"));
+			Assert.That(updatedContents, Does.Contain("# trailing comment"));
+			Assert.That(updatedContents, Does.Contain("  - path: ./conventions/new"));
+			Assert.That(updatedContents, Does.Contain("    settings:"));
+			Assert.That(updatedContents, Does.Contain("      enabled: false"));
+			Assert.That(updatedContents, Does.Contain("    pull-request:"));
+			Assert.That(updatedContents, Does.Contain("      auto-merge: true"));
+			Assert.That(references.Select(x => x.Path), Is.EqualTo(s_existingAndNewConventionPaths));
+			Assert.That(references[1].Settings?["enabled"]?.GetValue<bool>(), Is.False);
+			Assert.That(references[1].PullRequest?.AutoMerge, Is.True);
+		}
+	}
+
+	[Test]
+	public async Task AddModeSupportsReferenceCommitConfiguration()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		WriteNoOpConvention(repo, ".github/conventions/add-file");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", "{commit: {message: Refresh generated files}}"], repo.RootPath);
+		var references = ConventionConfiguration.Load(Path.Combine(repo.RootPath, ".github", "conventions.yml")).Conventions;
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(references[0].Commit?.Message, Is.EqualTo("Refresh generated files"));
+		}
+	}
+
+	[Test]
+	public async Task AddModeDoesNothingWhenExistingConventionConfigurationMatches()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			  - path: ./conventions/add-file
+			    settings:
+			      enabled: true
+			    pull-request:
+			      auto-merge: true
+			""");
+		var originalContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", "{settings: {enabled: true}, pull-request: {auto-merge: true}}"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(result.StandardError, Is.Empty);
+			Assert.That(result.StandardOutput, Does.Contain("already present"));
+			Assert.That(updatedContents, Is.EqualTo(originalContents));
+		}
+	}
+
+	[Test]
+	public async Task AddModeFailsWhenExistingConventionConfigurationDiffers()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			  - path: ./conventions/add-file
+			    settings:
+			      enabled: false
+			""");
+		var originalContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", /*lang=json*/ "{settings: {enabled: true}}"], repo.RootPath);
+		var updatedContents = await repo.ReadFileAsync(".github/conventions.yml");
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("different configuration"));
+			Assert.That(updatedContents, Is.EqualTo(originalContents));
+		}
+	}
+
+	[Test]
+	public async Task AddModeFailsWhenReferenceConfigurationYamlIsInvalid()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", "{settings: ["], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("--with"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddModeFailsWhenReferenceConfigurationHasUnsupportedKey()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", "{pullrequest: {auto-merge: true}}"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("unsupported convention reference key 'pullrequest'"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddModeFailsWhenReferenceConfigurationContainsPath()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/add-file", "--with", "{path: ./conventions/other}"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("cannot include 'path'"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
+	public async Task AddModeFailsWhenReferenceConfigurationIsUsedWithMultiplePaths()
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+
+		var result = await CliInvocation.InvokeAsync(["add", "./conventions/first", "./conventions/second", "--with", /*lang=json*/ "{settings: {enabled: true}}"], repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Not.Zero);
+			Assert.That(result.StandardError, Does.Contain("--with can only be used with one convention path"));
+			Assert.That(repo.FileExists(".github/conventions.yml"), Is.False);
+		}
+	}
+
+	[Test]
 	public async Task AddModeSucceedsEvenWhenRepositoryIsDirty()
 	{
 		using var repo = await TemporaryGitRepository.CreateAsync();

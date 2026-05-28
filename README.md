@@ -46,6 +46,12 @@ conventions:
 
 A configuration can also pass settings to a convention:
 
+```pwsh
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/write-file --with "{settings: {file: docs/example.md, overwrite: false}}"
+```
+
+The command writes the configured convention reference:
+
 ```yaml
 conventions:
   - path: Faithlife/CodingGuidelines/conventions/write-file

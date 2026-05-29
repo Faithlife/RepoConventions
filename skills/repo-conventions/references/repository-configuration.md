@@ -18,6 +18,12 @@ conventions:
 
 One convention with settings:
 
+```pwsh
+dnx repo-conventions add Faithlife/CodingGuidelines/conventions/write-file --with "{settings: {file: docs/example.md, overwrite: false}}"
+```
+
+Resulting configuration:
+
 ```yaml
 conventions:
   - path: Faithlife/CodingGuidelines/conventions/write-file
@@ -57,7 +63,7 @@ pull-request:
 
 ## Convention References
 
-Each item in `conventions` must contain a non-empty `path`. It may also contain `settings`, `commit`, and `pull-request`.
+Each item in `conventions` must contain a non-empty `path`. It may also contain `settings`, `commit`, and `pull-request`. Use `repo-conventions add <path> --with <yaml>` to create one configured convention reference from the command line. The `--with` value is a YAML mapping whose supported top-level keys are `settings`, `commit`, and `pull-request`.
 
 Use `settings` to pass JSON-compatible data to a convention: objects, arrays, strings, numbers, booleans, or null values. Top-level repository configuration uses literal settings values.
 

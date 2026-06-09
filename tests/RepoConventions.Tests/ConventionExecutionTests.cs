@@ -648,8 +648,35 @@ internal sealed class ConventionExecutionTests
 		{
 			Assert.That(result.ExitCode, Is.Zero);
 			Assert.That(await repo.ReadFileAsync("settings.json"), Does.Contain("\"hasSettings\":true"));
-			Assert.That(await repo.ReadFileAsync("settings.json"), Does.Contain("\"propertyCount\":1"));
+			Assert.That(await repo.ReadFileAsync("settings.json"), Does.Contain("\"propertyCount\":2"));
 			Assert.That(await repo.ReadFileAsync("settings.json"), Does.Contain("\"greeting\":\"hello\""));
+		}
+	}
+
+	[TestCase(false)]
+	[TestCase(true)]
+	public async Task CommitModePassesGitNoVerifyToExecutableConvention(bool gitNoVerify)
+	{
+		using var repo = await TemporaryGitRepository.CreateAsync();
+		repo.WriteFile(".github/conventions.yml", """
+			conventions:
+			- path: ./conventions/write-git
+			""");
+		repo.WriteFile(".github/conventions/write-git/convention.ps1", """
+			param([string] $configPath)
+			$config = Get-Content -Raw $configPath | ConvertFrom-Json
+			$output = @{ noVerify = $config.git.noVerify }
+			$output | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $PWD 'git.json')
+			""");
+		await repo.CommitAllAsync("Initial commit.");
+
+		var arguments = gitNoVerify ? new[] { "apply", "--git-no-verify" } : ["apply"];
+		var result = await CliInvocation.InvokeAsync(arguments, repo.RootPath);
+
+		using (Assert.EnterMultipleScope())
+		{
+			Assert.That(result.ExitCode, Is.Zero);
+			Assert.That(await repo.ReadFileAsync("git.json"), Does.Contain(gitNoVerify ? "\"noVerify\":true" : "\"noVerify\":false"));
 		}
 	}
 

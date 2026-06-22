@@ -8,14 +8,14 @@ internal static class RepoConventionsCli
 	internal const int CanceledExitCode = 130;
 	internal const string ShutdownRequestedMessage = "Shutdown requested.";
 
-	public static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
-		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
+	public static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken) =>
+		await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver: null, externalCommandRunner: null, cancellationToken);
 
-	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken)
-		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, useGitHubActionsGroupMarkers: null, GetGitHubStepSummaryPath(), cancellationToken);
+	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, CancellationToken cancellationToken) =>
+		await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, useGitHubActionsGroupMarkers: null, GetGitHubStepSummaryPath(), cancellationToken);
 
-	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool? useGitHubActionsGroupMarkers, CancellationToken cancellationToken)
-		=> await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, useGitHubActionsGroupMarkers, GetGitHubStepSummaryPath(), cancellationToken);
+	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool? useGitHubActionsGroupMarkers, CancellationToken cancellationToken) =>
+		await InvokeAsync(args, currentDirectory, standardOutput, standardError, remoteRepositoryUrlResolver, externalCommandRunner, useGitHubActionsGroupMarkers, GetGitHubStepSummaryPath(), cancellationToken);
 
 	internal static async Task<int> InvokeAsync(string[] args, string currentDirectory, TextWriter standardOutput, TextWriter standardError, Func<RemoteRepositoryUrlRequest, string>? remoteRepositoryUrlResolver, Func<ExternalCommandRequest, CancellationToken, Task<ExternalCommandResult>>? externalCommandRunner, bool? useGitHubActionsGroupMarkers, string? gitHubStepSummaryPath, CancellationToken cancellationToken)
 	{
